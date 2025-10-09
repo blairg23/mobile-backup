@@ -1,0 +1,19 @@
+[tool.poetry]
+name = "phone-backup"
+version = "0.1.0"
+description = "Automated phone-to-cloud backup orchestrator for Blair"
+authors = ["BlairG <blairg23@gmail.com>"]
+
+# Don’t package/install the project; just manage the venv
+package-mode = false
+
+[tool.poetry.dependencies]
+python = "^3.10"
+pyyaml = "^6.0"
+ExifRead= "^2.3.1"
+Pillow = ">=7.2.0"
+tqdm = "^4.67.1"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
