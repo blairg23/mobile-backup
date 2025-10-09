@@ -1,0 +1,22 @@
+# --- LOCAL STAGING (drag from phone into here) ---
+staging_root: "/mnt/c/Users/Neophile/Desktop/mobile"  # DCIM, Downloads, Movies, Pictures
+
+# Your repos (match your aliases)
+image_renamer_dir: "/mnt/d/Dropbox/Projects/sandboxes/python/rename-images-to-datetime"
+files_in_folder_dir: "/mnt/d/Dropbox/Projects/sandboxes/python/files-in-folder"
+
+# Tool-specific paths/commands
+rename_tool_input: "/mnt/d/Dropbox/Projects/sandboxes/python/rename-images-to-datetime/input"
+image_renamer_cmd: ["poetry", "run", "python", "image_renamer.py"]
+files_in_folder_cmd: ["poetry", "run", "python", "files_in_folder.py"]
+
+# Cloud destinations
+dropbox_camera_uploads: "/mnt/d/Dropbox/Camera Uploads"
+google_mobile_base: "/mnt/d/Google Drive/Multimedia/Pictures/Personal/Mobile"
+
+# After renaming, stage here before the checker
+desktop_mobile_camera: "/mnt/c/Users/Neophile/Desktop/mobile/DCIM/Camera"
+
+# Controls
+dry_run: false
+verbosity: 0  # 0=events only, 1=notes, 2=debug
