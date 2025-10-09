@@ -4,14 +4,67 @@ from pathlib import Path
 from datetime import datetime
 import argparse, os, sys, yaml, hashlib, shutil
 
-# ---------- logging (tee to file) ----------
-class Tee:
-    def __init__(self, *streams): self.streams = streams
+# ---------- safe tee logger ----------
+class _SafeStream:
+    """Wraps a stream and ignores write/flush errors during shutdown."""
+    def __init__(self, stream): self.stream = stream
     def write(self, data):
-        for s in self.streams: s.write(data)
-        for s in self.streams: s.flush()
+        try:
+            self.stream.write(data)
+        except Exception:
+            pass
     def flush(self):
-        for s in self.streams: s.flush()
+        try:
+            self.stream.flush()
+        except Exception:
+            pass
+
+class LogTee:
+    """
+    Context manager that tees stdout/stderr to a file + console, restoring on exit.
+    Prevents unraisablehook noise by swallowing write/flush errors during shutdown.
+    """
+    def __init__(self, logfile: Path, mode: str = "a"):
+        self.logfile = logfile
+        self.mode = mode
+        self._f = None
+        self._old_out = None
+        self._old_err = None
+
+    def __enter__(self):
+        self.logfile.parent.mkdir(parents=True, exist_ok=True)
+        self._f = open(self.logfile, self.mode, encoding="utf-8", buffering=1)
+        self._old_out, self._old_err = sys.stdout, sys.stderr
+        sys.stdout = self._tee(sys.stdout, self._f)
+        sys.stderr = self._tee(sys.stderr, self._f)
+        return self.logfile
+
+    def __exit__(self, exc_type, exc, tb):
+        try:
+            # Restore first, then close file.
+            if self._old_out is not None:
+                sys.stdout = self._old_out
+            if self._old_err is not None:
+                sys.stderr = self._old_err
+        finally:
+            try:
+                if self._f:
+                    self._f.flush()
+                    self._f.close()
+            except Exception:
+                pass
+        return False  # don't suppress exceptions
+
+    @staticmethod
+    def _tee(console_stream, file_stream):
+        console = _SafeStream(console_stream)
+        fileobj = _SafeStream(file_stream)
+        class _Tee:
+            def write(self, data):
+                console.write(data); fileobj.write(data)
+            def flush(self):
+                console.flush(); fileobj.flush()
+        return _Tee()
 
 # ---------- junk filter (matches mobile_backup.py) ----------
 UNWANTED_EXACT = {"contents.csv", "desktop.ini"}  # case-insensitive
@@ -58,7 +111,7 @@ def ensure_conflicts(dest: Path, apply: bool) -> Path:
 
 # ---------- junk cleanup ----------
 def cleanup_unwanted(root: Path, apply: bool) -> int:
-    """Remove .trashed*, .thumbnails, Contents.csv, desktop.ini; return # files removed (files inside deleted dirs are counted)."""
+    """Remove .trashed*, .thumbnails, Contents.csv, desktop.ini; return # files removed (counts files inside deleted dirs)."""
     if not root.exists(): return 0
     removed = 0
     trash_dirs, files_to_del = [], []
@@ -88,8 +141,8 @@ def cleanup_unwanted(root: Path, apply: bool) -> int:
 
 # ---------- file & dir suffix (“_1”) fixers ----------
 def base_name_for_suffix(name: str) -> str | None:
-    """Return the base name without the `_1` suffix (before extension), else None."""
-    if name.endswith("_1"):  # no extension case
+    """Return base name without `_1` suffix (before extension), else None."""
+    if name.endswith("_1"):         # no extension
         return name[:-2] if len(name) > 2 else None
     if "_1." in name:
         return name.replace("_1.", ".", 1)  # only first occurrence
@@ -109,14 +162,12 @@ def fix_suffix_file(p1: Path, apply: bool) -> tuple[str, Path, Path | None]:
         if apply:
             p1.rename(p0)
         return ("moved_to_base", p1, p0)
-    # base exists: compare
     if files_identical(p1, p0):
         print(f"delete duplicate file: {p1} (identical to {p0})")
         if apply:
             try: p1.unlink()
             except Exception: pass
         return ("delete_dupe", p1, p0)
-    # conflict -> quarantine in _conflicts
     cdir = ensure_conflicts(p1.parent, apply)
     target = cdir / p1.name
     i = 1
@@ -138,7 +189,6 @@ def dedupe_merge_dir(src: Path, dst: Path, apply: bool) -> tuple[int, int, int]:
         dst.mkdir(parents=True, exist_ok=True)
     for child in src.iterdir():
         if is_unwanted_name(child.name):
-            # junk inside *_1 gets removed
             print(f"delete junk in dir: {child}")
             if apply:
                 if child.is_dir():
@@ -146,7 +196,6 @@ def dedupe_merge_dir(src: Path, dst: Path, apply: bool) -> tuple[int, int, int]:
                 else:
                     child.unlink(missing_ok=True)
             continue
-
         if child.is_file():
             target = dst / child.name
             if target.exists():
@@ -172,17 +221,12 @@ def dedupe_merge_dir(src: Path, dst: Path, apply: bool) -> tuple[int, int, int]:
                 if apply:
                     shutil.move(str(child), str(target))
                 moved += 1
-
         elif child.is_dir():
             m, d, c = dedupe_merge_dir(child, dst / child.name, apply)
             moved += m; deleted_dupes += d; conflicts += c
-
-    # try remove emptied src
-    try:
-        if apply:
-            src.rmdir()
-    except OSError:
-        pass
+    if apply:
+        try: src.rmdir()
+        except OSError: pass
     return moved, deleted_dupes, conflicts
 
 def fix_suffix_dir(src: Path, apply: bool) -> tuple[str, Path, Path]:
@@ -205,7 +249,7 @@ def fix_suffix_dir(src: Path, apply: bool) -> tuple[str, Path, Path]:
     print(f"  merge summary for {src.name}: moved={moved}, deleted_dupes={dups}, conflicts={confs}")
     return ("merged_into_base", src, base)
 
-# ---------- main ----------
+# ---------- path resolution ----------
 def resolve_month_path(cfg: dict, arg_path: str) -> Path:
     p = Path(arg_path)
     if p.is_absolute():
@@ -213,6 +257,7 @@ def resolve_month_path(cfg: dict, arg_path: str) -> Path:
     base = Path(cfg["google_mobile_base"])
     return base / arg_path
 
+# ---------- main ----------
 def main():
     here = Path(__file__).resolve().parent
     cfg = yaml.safe_load((here/"config.yaml").read_text(encoding="utf-8"))
@@ -228,12 +273,9 @@ def main():
     if not month_path.exists():
         print(f"No such folder: {month_path}", file=sys.stderr); sys.exit(2)
 
-    # log in the month folder root (append to keep history)
     log_path = month_path / "cleanup_log.txt"
-    with log_path.open("a", encoding="utf-8") as lf:
-        sys.stdout = Tee(sys.__stdout__, lf)
-        sys.stderr = Tee(sys.__stderr__, lf)
-
+    # use context manager so stdio is always restored before file close
+    with LogTee(log_path, mode="a"):
         print("="*72)
         print(f"Cleanup run @ {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}  (apply={args.apply})")
         print(f"Target: {month_path}")
@@ -251,7 +293,7 @@ def main():
                 base = base_name_for_suffix(f)
                 if not base:
                     continue
-                action, src, target = fix_suffix_file(d/f, apply=args.apply)
+                action, _src, _target = fix_suffix_file(d/f, apply=args.apply)
                 if action in file_actions:
                     file_actions[action] += 1
 
@@ -262,9 +304,8 @@ def main():
         # 3) fix *_1 directories (rename or merge)
         dir_renamed = 0
         dir_merged = 0
-        # Walk top-down so we don't miss nested _1 dirs
+        # Walk top-down; operate on a copy of 'dirs' so os.walk remains stable
         for dirpath, dirs, _files in os.walk(month_path):
-            # operate on a copy of list to avoid modification issues during merge/rename
             for name in list(dirs):
                 if not name.endswith("_1"):
                     continue
