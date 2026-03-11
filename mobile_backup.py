@@ -103,7 +103,8 @@ def collect_step6_picture_sources(staging_root: Path) -> list[tuple[str, Path, P
             continue
         if count_files_in_path(it, exclude_trashed=True) <= 0:
             continue
-        sources.append((it.name, it, Path(it.name)))
+        target_rel = Path(".") if it.name == "Pictures" else Path(it.name)
+        sources.append((it.name, it, target_rel))
 
     return sources
 
