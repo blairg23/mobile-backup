@@ -1,5 +1,5 @@
 # --- LOCAL STAGING (drag from phone into here) ---
-staging_root: "/mnt/c/Users/Neophile/Desktop/mobile"  # DCIM, Download, Movies, Pictures
+staging_root: "/mnt/c/Users/Neophile/Desktop/mobile"  # DCIM, Download/Downloads, Movies, Pictures
 
 # Your repos (match your aliases)
 image_renamer_dir: "/mnt/d/Dropbox/Projects/sandboxes/python/rename-images-to-datetime"

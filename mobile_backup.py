@@ -77,8 +77,35 @@ def run_cmd(cmd: list[str], cwd: Path | None, dry: bool) -> None:
 def list_children(p: Path) -> list[Path]:
     return list(p.iterdir()) if p.exists() else []
 
-def has_any_content(p: Path) -> bool:
-    return count_files_in_path(p, exclude_trashed=True) > 0
+def collect_step6_picture_sources(staging_root: Path) -> list[tuple[str, Path, Path]]:
+    """
+    Build Step 6 source routing for destination Pictures/.
+    Rules:
+      - DCIM/Camera is excluded (handled by Steps 1-5)
+      - Movies is excluded (handled by Step 7)
+      - DCIM/<other-subdirs> -> Pictures/<subdir>
+      - Any other top-level staging dir -> Pictures/<dir-name>
+    """
+    sources: list[tuple[str, Path, Path]] = []
+
+    p_dcim = staging_root / "DCIM"
+    for c in sorted(list_children(p_dcim), key=lambda p: p.name.lower()):
+        if not c.is_dir() or c.name == "Camera":
+            continue
+        if count_files_in_path(c, exclude_trashed=True) <= 0:
+            continue
+        sources.append((f"DCIM/{c.name}", c, Path(c.name)))
+
+    for it in sorted(list_children(staging_root), key=lambda p: p.name.lower()):
+        if not it.is_dir():
+            continue
+        if it.name in {"DCIM", "Movies"}:
+            continue
+        if count_files_in_path(it, exclude_trashed=True) <= 0:
+            continue
+        sources.append((it.name, it, Path(it.name)))
+
+    return sources
 
 def count_files_in_path(p: Path, *, exclude_trashed: bool = True) -> int:
     """Count regular files under path. If exclude_trashed=True, excludes .trashed*, .thumbnails, Contents.csv, desktop.ini."""
@@ -337,9 +364,7 @@ def main():
 
     # Staging subdirs
     P_DCIM      = STAGING / "DCIM"
-    P_DOWNLOAD  = STAGING / "Download"
     P_MOVIES    = STAGING / "Movies"
-    P_PICTURES  = STAGING / "Pictures"
 
     # Destinations
     span, span_overridden = resolve_destination_span(cfg)
@@ -421,51 +446,41 @@ def main():
             print_step_unwanted_details("Step 5", DRY_RUN, str(dropbox_cu), unwanted5)
         event("")
 
-        # --- Step 6: Pictures aggregation ---
-        # 6a DCIM extras
-        dcim_extras = [c for c in list_children(P_DCIM) if c.name != "Camera" and count_files_in_path(c, exclude_trashed=True) > 0]
-        unwanted6a: list[tuple[str, list[Path]]] = []
-        if SHOW_DELETED_FILE_DETAILS:
-            unwanted6a = [(f"DCIM/{c.name}", list_unwanted_files(c)) for c in dcim_extras]
-        if DRY_RUN:
-            del6a = sum(len(files) for _src, files in unwanted6a)
+        # --- Step 6: catch-all Pictures routing ---
+        step6_sources = collect_step6_picture_sources(STAGING)
+        if step6_sources:
+            event("  Step 6 routed sources -> Pictures: " + ", ".join(label for label, _src, _target in step6_sources))
         else:
-            del6a = sum(cleanup_unwanted(c, False) for c in dcim_extras)
-        n6a   = sum(count_files_in_path(c, exclude_trashed=True) for c in dcim_extras)
+            event("  Step 6 routed sources -> Pictures: (none)")
 
-        s6a = MoveStats()
-        upd, close = progress_start(n6a, "Step 6 transfer (DCIM extras)", enabled=not DRY_RUN)
+        unwanted6_groups: list[tuple[str, list[Path]]] = []
+        if SHOW_DELETED_FILE_DETAILS:
+            unwanted6_groups = [(label, list_unwanted_files(src)) for label, src, _target in step6_sources]
+
+        if DRY_RUN:
+            total_del6 = sum(len(files) for _label, files in unwanted6_groups)
+        else:
+            total_del6 = sum(cleanup_unwanted(src, False) for _label, src, _target in step6_sources)
+
+        n6_total = sum(count_files_in_path(src, exclude_trashed=True) for _label, src, _target in step6_sources)
+
+        s6 = MoveStats()
+        upd, close = progress_start(n6_total, "Step 6 transfer (Pictures aggregate)", enabled=not DRY_RUN)
         try:
-            for c in dcim_extras:
-                dedupe_merge_dir(c, dest_pictures / c.name, DRY_RUN, s6a, update_progress=upd)
+            for _label, src, target_rel in step6_sources:
+                dedupe_merge_dir(src, dest_pictures / target_rel, DRY_RUN, s6, update_progress=upd)
         finally:
             close()
 
-        # 6b Pictures/*
-        unwanted6b = list_unwanted_files(P_PICTURES) if SHOW_DELETED_FILE_DETAILS else []
-        del6b = len(unwanted6b) if DRY_RUN else cleanup_unwanted(P_PICTURES, False)
-        n6b   = count_files_in_children(P_PICTURES, exclude_trashed=True)
-        s6b   = dedupe_move_children_with_progress(P_PICTURES, dest_pictures, DRY_RUN, desc="Step 6 transfer (Pictures)", total_files=n6b)
-
-        # 6c Download/*
-        unwanted6c = list_unwanted_files(P_DOWNLOAD) if SHOW_DELETED_FILE_DETAILS else []
-        del6c = len(unwanted6c) if DRY_RUN else cleanup_unwanted(P_DOWNLOAD, False)
-        n6c   = count_files_in_children(P_DOWNLOAD, exclude_trashed=True)
-        s6c   = dedupe_move_children_with_progress(P_DOWNLOAD, dest_pictures, DRY_RUN, desc="Step 6 transfer (Download)", total_files=n6c)
-
-        total_del6 = del6a + del6b + del6c
-        total_skip6 = s6a.skipped_dupes + s6b.skipped_dupes + s6c.skipped_dupes
-        total_conf6 = s6a.conflicts + s6b.conflicts + s6c.conflicts
         event(
             f"Step 6: {'would delete' if DRY_RUN else 'deleted'} {total_del6} unwanted in source staging folders; "
-            f"{'would move' if DRY_RUN else 'moved'} {n6a + n6b + n6c} files "
-            f"(skipped {total_skip6} dupes, conflicts {total_conf6}) to {dest_pictures}"
+            f"{'would move' if DRY_RUN else 'moved'} {n6_total} files "
+            f"(skipped {s6.skipped_dupes} dupes, conflicts {s6.conflicts}) to {dest_pictures}"
         )
         if SHOW_DELETED_FILE_DETAILS and total_del6 > 0:
-            unwanted_groups = unwanted6a + [("Pictures", unwanted6b), ("Download", unwanted6c)]
             print_step6_unwanted_details(
                 DRY_RUN,
-                unwanted_groups,
+                unwanted6_groups,
             )
         event("")
 

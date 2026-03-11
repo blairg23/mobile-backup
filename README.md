@@ -11,7 +11,7 @@ Move your phone’s photos/videos from a desktop **staging area** into a **month
 ## Why this exists
 
 Manual shuffles suck. This script codifies the flow you already do:
-1) Drop `DCIM`, `Download`, `Movies`, `Pictures` from your phone into a staging folder.
+1) Drop `DCIM`, `Download`/`Downloads`, `Movies`, `Pictures` from your phone into a staging folder.
 2) Rename the camera files by EXIF datetime.
 3) Verify the files exist in Dropbox Camera Uploads.
 4) Move everything into a Google Drive month folder named like `202509_202510`.
@@ -58,7 +58,7 @@ Copy to config.yaml and replace all /path/to/... with absolute paths for YOUR ma
 
 ### Staging
 
-where you drop DCIM, Download, Movies, Pictures from the phone
+where you drop DCIM, Download/Downloads, Movies, Pictures from the phone
 
 staging_root: `/path/to/Desktop/mobile`
 
@@ -159,7 +159,7 @@ staging_root/
 ├─ DCIM/
 │  ├─ Camera/
 │  └─ <other DCIM subfolders>/
-├─ Download/
+├─ Download/ or Downloads/
 ├─ Movies/
 └─ Pictures/
 ```
