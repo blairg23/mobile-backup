@@ -1,5 +1,5 @@
 # --- LOCAL STAGING (drag from phone into here) ---
-staging_root: "/mnt/c/Users/Neophile/Desktop/mobile"  # DCIM, Downloads, Movies, Pictures
+staging_root: "/mnt/c/Users/Neophile/Desktop/mobile"  # DCIM, Download/Downloads, Movies, Pictures
 
 # Your repos (match your aliases)
 image_renamer_dir: "/mnt/d/Dropbox/Projects/sandboxes/python/rename-images-to-datetime"
@@ -13,10 +13,12 @@ files_in_folder_cmd: ["poetry", "run", "python", "files_in_folder.py"]
 # Cloud destinations
 dropbox_camera_uploads: "/mnt/d/Dropbox/Camera Uploads"
 google_mobile_base: "/mnt/d/Google Drive/Multimedia/Pictures/Personal/Mobile"
+# Optional: force destination folder name instead of auto {prev}_{curr} month span
+destination_span_override: null  # e.g. "202601_202603"
 
 # After renaming, stage here before the checker
 desktop_mobile_camera: "/mnt/c/Users/Neophile/Desktop/mobile/DCIM/Camera"
 
 # Controls
 dry_run: false
-verbosity: 0  # 0=events only, 1=notes, 2=debug
+verbosity: 0  # 0=events only, 1=notes incl deleted-file details, 2=debug

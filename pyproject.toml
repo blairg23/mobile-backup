@@ -1,7 +1,7 @@
 [tool.poetry]
 name = "phone-backup"
 version = "0.1.0"
-description = "Automated phone-to-cloud backup orchestrator for Blair"
+description = "Automated phone-to-cloud backup orchestrator."
 authors = ["BlairG <blairg23@gmail.com>"]
 
 # Don’t package/install the project; just manage the venv
