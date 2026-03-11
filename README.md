@@ -11,7 +11,7 @@ Move your phone’s photos/videos from a desktop **staging area** into a **month
 ## Why this exists
 
 Manual shuffles suck. This script codifies the flow you already do:
-1) Drop `DCIM`, `Downloads`, `Movies`, `Pictures` from your phone into a staging folder.
+1) Drop `DCIM`, `Download`, `Movies`, `Pictures` from your phone into a staging folder.
 2) Rename the camera files by EXIF datetime.
 3) Verify the files exist in Dropbox Camera Uploads.
 4) Move everything into a Google Drive month folder named like `202509_202510`.
@@ -58,7 +58,7 @@ Copy to config.yaml and replace all /path/to/... with absolute paths for YOUR ma
 
 ### Staging
 
-where you drop DCIM, Downloads, Movies, Pictures from the phone
+where you drop DCIM, Download, Movies, Pictures from the phone
 
 staging_root: `/path/to/Desktop/mobile`
 
@@ -76,6 +76,10 @@ dropbox_camera_uploads: `/path/to/Dropbox/Camera Uploads`
 ### Google Drive "Mobile" base (script writes into `{prev}_{curr}` here)
 google_mobile_base: `/path/to/Google Drive/Multimedia/Pictures/Personal/Mobile`
 
+### Optional destination span override
+destination_span_override: `null`            # auto month span
+destination_span_override: `202601_202603`   # explicit override
+
 ### Where Camera files sit after rename (Desktop/mobile/DCIM/Camera)
 desktop_mobile_camera: `/path/to/Desktop/mobile/DCIM/Camera`
 
@@ -86,9 +90,9 @@ files_in_folder_cmd: [`poetry`, `run`, `python`, `files_in_folder.py`]
 
 ### Defaults
 `dry_run: true`      # start safe; prints “would move/delete …” lines
-`verbosity: 0`       # 0=quiet, 1=notes, 2=debug
+`verbosity: 0`       # 0=quiet, 1=notes (includes deleted-file details in real run), 2=debug
 
-Note: Month folder names are automatically computed as `{previous_year}{previous_month}_{current_year}{current_month}` (e.g., `202509_202510`).
+Note: If `destination_span_override` is null/empty, month folder names are automatically computed as `{previous_year}{previous_month}_{current_year}{current_month}` (e.g., `202509_202510`).
 
 ---
 
@@ -99,6 +103,7 @@ Note: Month folder names are automatically computed as `{previous_year}{previous
 Run: `poetry run python mobile_backup.py`
 
 Expected output (example):
+Destination span: `202509_202510` (auto)
 Destination: `/path/to/.../Mobile/202509_202510`
 Step 5: would delete 14 unwanted; would move 3438 files (skipped 98 dupes, conflicts 2) from /path/to/.../Camera Uploads -> .../Camera
 Done. (dry run)
@@ -154,7 +159,7 @@ staging_root/
 ├─ DCIM/
 │  ├─ Camera/
 │  └─ <other DCIM subfolders>/
-├─ Downloads/
+├─ Download/
 ├─ Movies/
 └─ Pictures/
 ```
