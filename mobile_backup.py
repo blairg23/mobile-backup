@@ -143,10 +143,11 @@ def count_files_in_children(dir_path: Path, *, exclude_trashed: bool = True, exc
         total += count_files_in_path(it, exclude_trashed=exclude_trashed)
     return total
 
-def delete_path(p: Path, dry: bool) -> int:
+def delete_path(p: Path, dry: bool, *, log: bool = True) -> int:
     """Delete file/dir; return number of regular files removed under it."""
     removed = count_files_in_path(p, exclude_trashed=False) if p.exists() else 0
-    audit_log("DELETE", p, dry=dry)
+    if log:
+        audit_log("DELETE", p, dry=dry)
     if dry:
         return removed
     try:
@@ -241,7 +242,7 @@ def dedupe_merge_dir(src_dir: Path, dest_dir: Path, dry: bool, stats: MoveStats,
     ensure_dir(dest_dir, dry)
     for child in list_children(src_dir):
         if is_unwanted_name(child.name):
-            delete_path(child, dry)
+            delete_path(child, dry, log=False)
             continue
         if child.is_file():
             dedupe_move_file(child, dest_dir, dry, stats)
@@ -279,7 +280,7 @@ def dedupe_move_children_with_progress(src_dir: Path, dest_dir: Path, dry: bool,
     try:
         for it in list_children(src_dir):
             if is_unwanted_name(it.name):
-                delete_path(it, dry)
+                delete_path(it, dry, log=False)
                 continue
             if it.is_file():
                 dedupe_move_file(it, dest_dir, dry, stats)
