@@ -204,11 +204,12 @@ def files_identical(a: Path, b: Path) -> bool:
     return sha256sum(a) == sha256sum(b)
 
 class MoveStats:
-    __slots__ = ("moved", "skipped_dupes", "conflicts")
+    __slots__ = ("moved", "skipped_dupes", "conflicts", "deleted_unwanted")
     def __init__(self):
         self.moved = 0
         self.skipped_dupes = 0
         self.conflicts = 0
+        self.deleted_unwanted = 0
 
 def ensure_conflicts_dir(dest_root: Path, dry: bool) -> Path:
     cdir = dest_root / CONFLICTS_DIR_NAME
@@ -293,8 +294,9 @@ def dedupe_move_children_with_progress(src_dir: Path, dest_dir: Path, dry: bool,
         close()
     return stats
 
-def moved_phrase(n: int, dry: bool) -> str:
-    return f'{"would move" if dry else "moved"} {n} file{"s" if n != 1 else ""}'
+def moved_phrase(stats: MoveStats, processed: int, dry: bool) -> str:
+    verb = "would move" if dry else "moved"
+    return f"{verb} {stats.moved}/{processed} files"
 
 def print_step6_unwanted_details(
     dry: bool,
@@ -342,9 +344,10 @@ def main():
     here = Path(__file__).resolve().parent
     cfg = yaml.safe_load((here / "config.yaml").read_text(encoding="utf-8"))
 
-    VERBOSITY = int(cfg.get("verbosity", 0))
-    DRY_RUN   = bool(cfg.get("dry_run", True))
+    VERBOSITY             = int(cfg.get("verbosity", 0))
+    DRY_RUN               = bool(cfg.get("dry_run", True))
     SHOW_DELETED_FILE_DETAILS = DRY_RUN or (VERBOSITY >= 1)
+    WRITE_RUN_SUMMARY_JSON = bool(cfg.get("write_run_summary_json", False))
 
     # Config (using your alias dirs)
     STAGING             = Path(cfg["staging_root"])  # /mnt/c/Users/Neophile/Desktop/mobile
@@ -399,7 +402,8 @@ def main():
         n1  = count_files_in_children(src_camera, exclude_trashed=True)
         ensure_dir(RENAME_IN, DRY_RUN)
         s1 = dedupe_move_children_with_progress(src_camera, RENAME_IN, DRY_RUN, desc="Step 1 transfer", total_files=n1)
-        event(f"Step 1: {'would delete' if DRY_RUN else 'deleted'} {del1} unwanted; {moved_phrase(n1, DRY_RUN)} "
+        s1.deleted_unwanted = del1
+        event(f"Step 1: {'would delete' if DRY_RUN else 'deleted'} {del1} unwanted; {moved_phrase(s1, n1, DRY_RUN)} "
               f"(skipped {s1.skipped_dupes} dupes, conflicts {s1.conflicts}) from {src_camera} -> {RENAME_IN}")
         if SHOW_DELETED_FILE_DETAILS:
             print_step_unwanted_details("Step 1", DRY_RUN, str(src_camera), unwanted1)
@@ -415,7 +419,8 @@ def main():
         del3 = len(unwanted3) if DRY_RUN else cleanup_unwanted(RENAME_IN, False)
         n3  = count_files_in_children(RENAME_IN, exclude_trashed=True)
         s3 = dedupe_move_children_with_progress(RENAME_IN, DESKTOP_CAM, DRY_RUN, desc="Step 3 transfer", total_files=n3)
-        event(f"Step 3: {'would delete' if DRY_RUN else 'deleted'} {del3} unwanted; {moved_phrase(n3, DRY_RUN)} "
+        s3.deleted_unwanted = del3
+        event(f"Step 3: {'would delete' if DRY_RUN else 'deleted'} {del3} unwanted; {moved_phrase(s3, n3, DRY_RUN)} "
               f"(skipped {s3.skipped_dupes} dupes, conflicts {s3.conflicts}) from {RENAME_IN} -> {DESKTOP_CAM}")
         if SHOW_DELETED_FILE_DETAILS:
             print_step_unwanted_details("Step 3", DRY_RUN, str(RENAME_IN), unwanted3)
@@ -432,7 +437,8 @@ def main():
         del5 = len(unwanted5) if DRY_RUN else cleanup_unwanted(dropbox_cu, False)
         n5  = count_files_in_children(dropbox_cu, exclude_trashed=True)
         s5 = dedupe_move_children_with_progress(dropbox_cu, dest_camera, DRY_RUN, desc="Step 5 transfer", total_files=n5)
-        event(f"Step 5: {'would delete' if DRY_RUN else 'deleted'} {del5} unwanted; {moved_phrase(n5, DRY_RUN)} "
+        s5.deleted_unwanted = del5
+        event(f"Step 5: {'would delete' if DRY_RUN else 'deleted'} {del5} unwanted; {moved_phrase(s5, n5, DRY_RUN)} "
               f"(skipped {s5.skipped_dupes} dupes, conflicts {s5.conflicts}) from {DROPBOX_CU} -> {dest_camera}")
         if SHOW_DELETED_FILE_DETAILS:
             print_step_unwanted_details("Step 5", DRY_RUN, str(dropbox_cu), unwanted5)
@@ -464,9 +470,10 @@ def main():
         finally:
             close()
 
+        s6.deleted_unwanted = total_del6
         event(
             f"Step 6: {'would delete' if DRY_RUN else 'deleted'} {total_del6} unwanted in source staging folders; "
-            f"{'would move' if DRY_RUN else 'moved'} {n6_total} files "
+            f"{moved_phrase(s6, n6_total, DRY_RUN)} "
             f"(skipped {s6.skipped_dupes} dupes, conflicts {s6.conflicts}) to {dest_pictures}"
         )
         if SHOW_DELETED_FILE_DETAILS and total_del6 > 0:
@@ -481,12 +488,44 @@ def main():
         del7 = len(unwanted7) if DRY_RUN else cleanup_unwanted(P_MOVIES, False)
         n7   = count_files_in_children(P_MOVIES, exclude_trashed=True)
         s7   = dedupe_move_children_with_progress(P_MOVIES, dest_movies, DRY_RUN, desc="Step 7 transfer (Movies)", total_files=n7)
-        event(f"Step 7: {'would delete' if DRY_RUN else 'deleted'} {del7} unwanted; {moved_phrase(n7, DRY_RUN)} "
+        s7.deleted_unwanted = del7
+        event(f"Step 7: {'would delete' if DRY_RUN else 'deleted'} {del7} unwanted; {moved_phrase(s7, n7, DRY_RUN)} "
               f"(skipped {s7.skipped_dupes} dupes, conflicts {s7.conflicts}) from {P_MOVIES} -> {dest_movies}")
         if SHOW_DELETED_FILE_DETAILS:
             print_step_unwanted_details("Step 7", DRY_RUN, str(P_MOVIES), unwanted7)
         event("")
 
+        # --- Run summary ---
+        move_steps = [s1, s3, s5, s6, s7]
+        total_processed     = n1 + n3 + n5 + n6_total + n7
+        total_moved         = sum(s.moved           for s in move_steps)
+        total_skipped_dupes = sum(s.skipped_dupes   for s in move_steps)
+        total_conflicts     = sum(s.conflicts        for s in move_steps)
+        total_deleted       = sum(s.deleted_unwanted for s in move_steps)
+        prefix = "would " if DRY_RUN else ""
+        event("Run summary:")
+        event(f"  {prefix}processed:        {total_processed}")
+        event(f"  {prefix}moved:            {total_moved}")
+        event(f"  {prefix}skipped dupes:    {total_skipped_dupes}")
+        event(f"  {prefix}conflicts:        {total_conflicts}")
+        event(f"  {prefix}deleted unwanted: {total_deleted}")
+
+        if WRITE_RUN_SUMMARY_JSON and not DRY_RUN:
+            import json
+            summary = {
+                "span": span,
+                "dry_run": DRY_RUN,
+                "processed": total_processed,
+                "moved": total_moved,
+                "skipped_dupes": total_skipped_dupes,
+                "conflicts": total_conflicts,
+                "deleted_unwanted": total_deleted,
+            }
+            summary_path = log_dir / f"run_summary_{span}.json"
+            summary_path.write_text(json.dumps(summary, indent=2), encoding="utf-8")
+            event(f"  summary JSON: {summary_path}")
+
+        event("")
         event("Done." + (" (dry run)" if DRY_RUN else ""))
 
 if __name__ == "__main__":
