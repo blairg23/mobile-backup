@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from datetime import date, datetime
 import subprocess, shutil, sys, os, yaml, hashlib
+from backup_utils import LogTee
 
 # optional pretty progress
 try:
@@ -13,13 +14,6 @@ except Exception:
 
 # ---------- logging ----------
 VERBOSITY = 0
-class Tee:
-    def __init__(self, *streams): self.streams = streams
-    def write(self, data):
-        for s in self.streams: s.write(data)
-        for s in self.streams: s.flush()
-    def flush(self):
-        for s in self.streams: s.flush()
 
 def event(msg: str): print(msg, flush=True)
 def note(msg: str):  VERBOSITY >= 1 and print(msg, flush=True)
@@ -385,10 +379,7 @@ def main():
         log_dir = dest_root
     log_path = log_dir / f"mobile_backup_{span}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
 
-    with log_path.open("w", encoding="utf-8") as lf:
-        sys.stdout = Tee(sys.__stdout__, lf)
-        sys.stderr = Tee(sys.__stderr__, lf)
-
+    with LogTee(log_path, mode="w"):
         if not DRY_RUN:
             ensure_dir(dest_camera, DRY_RUN)
             ensure_dir(dest_pictures, DRY_RUN)
