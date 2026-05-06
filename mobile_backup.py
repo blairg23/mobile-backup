@@ -14,10 +14,29 @@ except Exception:
 
 # ---------- logging ----------
 VERBOSITY = 0
+AUDIT_LEVEL = "summary"  # "summary" | "deletions" | "actions"
+AUDIT_ROOT: Path | None = None
 
 def event(msg: str): print(msg, flush=True)
 def note(msg: str):  VERBOSITY >= 1 and print(msg, flush=True)
 def debug(msg: str): VERBOSITY >= 2 and print(msg, flush=True)
+
+def _rel(p: Path) -> str:
+    if AUDIT_ROOT is None:
+        return str(p)
+    try:
+        return str(p.relative_to(AUDIT_ROOT))
+    except ValueError:
+        return str(p)
+
+def audit_log(action: str, src: Path, dst: Path | None = None, dry: bool = False) -> None:
+    if AUDIT_LEVEL == "summary":
+        return
+    if AUDIT_LEVEL == "deletions" and action != "DELETE":
+        return
+    prefix = "[dry] " if dry else ""
+    dst_str = f" -> {_rel(dst)}" if dst else ""
+    note(f"  {prefix}{action}: {_rel(src)}{dst_str}")
 
 # ---------- junk filter ----------
 UNWANTED_EXACT = {"contents.csv", "desktop.ini"}  # case-insensitive
@@ -124,37 +143,11 @@ def count_files_in_children(dir_path: Path, *, exclude_trashed: bool = True, exc
         total += count_files_in_path(it, exclude_trashed=exclude_trashed)
     return total
 
-def count_unwanted_files(root: Path) -> int:
-    """How many files would be removed by cleanup_unwanted(root)?"""
-    if not root.exists(): return 0
-    total = 0
-    for cur, dirs, files in os.walk(root, topdown=True):
-        del_dirs = [d for d in dirs if is_trashed_name(d) or is_thumbnails_name(d)]
-        for d in del_dirs:
-            total += count_files_in_path(Path(cur)/d, exclude_trashed=False)
-        dirs[:] = [d for d in dirs if d not in del_dirs]
-        total += sum(1 for f in files if is_unwanted_name(f))
-    return total
-
-def list_unwanted_files(root: Path) -> list[Path]:
-    """List regular files that cleanup_unwanted(root) would remove."""
-    if not root.exists(): return []
-    out: list[Path] = []
-    for cur, dirs, files in os.walk(root, topdown=True):
-        del_dirs = [d for d in dirs if is_trashed_name(d) or is_thumbnails_name(d)]
-        for d in del_dirs:
-            dpath = Path(cur) / d
-            for r2, _d2, f2 in os.walk(dpath):
-                out.extend((Path(r2) / f) for f in f2)
-        dirs[:] = [d for d in dirs if d not in del_dirs]
-        out.extend((Path(cur) / f) for f in files if is_unwanted_name(f))
-    return sorted(out, key=lambda p: str(p))
-
 def delete_path(p: Path, dry: bool) -> int:
     """Delete file/dir; return number of regular files removed under it."""
     removed = count_files_in_path(p, exclude_trashed=False) if p.exists() else 0
+    audit_log("DELETE", p, dry=dry)
     if dry:
-        debug(f'[dry] rm -rf "{p}"')
         return removed
     try:
         if p.is_dir():
@@ -222,6 +215,7 @@ def dedupe_move_file(src: Path, dest_dir: Path, dry: bool, stats: MoveStats) -> 
     dst = dest_dir / src.name
     if dst.exists():
         if files_identical(src, dst):
+            audit_log("SKIP", src, dst, dry=dry)
             if not dry:
                 try: src.unlink()
                 except Exception: pass
@@ -233,10 +227,12 @@ def dedupe_move_file(src: Path, dest_dir: Path, dry: bool, stats: MoveStats) -> 
         while target.exists():
             target = cdir / f"{src.stem}_conflict{i}{src.suffix}"
             i += 1
+        audit_log("CONFLICT", src, target, dry=dry)
         if not dry:
             shutil.move(str(src), str(target))
         stats.conflicts += 1
         return
+    audit_log("MOVE", src, dst, dry=dry)
     if not dry:
         shutil.move(str(src), str(dst))
     stats.moved += 1
@@ -298,59 +294,21 @@ def moved_phrase(stats: MoveStats, processed: int, dry: bool) -> str:
     verb = "would move" if dry else "moved"
     return f"{verb} {stats.moved}/{processed} files"
 
-def print_step6_unwanted_details(
-    dry: bool,
-    unwanted_groups: list[tuple[str, list[Path]]],
-) -> None:
-    emit = event if dry else note
-    if dry:
-        emit("  Step 6 details: source files that would be deleted before transfer (not destination files)")
-    else:
-        emit("  Step 6 details: source files deleted before transfer (not destination files)")
-
-    any_lines = False
-
-    for source, files in unwanted_groups:
-        if not files:
-            continue
-        any_lines = True
-        emit(f"    {source}:")
-        for p in files:
-            emit(f"      - {p}")
-
-    if not any_lines:
-        emit("    (none)")
-
-def print_step_unwanted_details(
-    step_label: str,
-    dry: bool,
-    source_label: str,
-    files: list[Path],
-) -> None:
-    emit = event if dry else note
-    if not files:
-        return
-    if dry:
-        emit(f"  {step_label} details: source files that would be deleted before transfer (not destination files)")
-    else:
-        emit(f"  {step_label} details: source files deleted before transfer (not destination files)")
-    emit(f"    {source_label}:")
-    for p in files:
-        emit(f"      - {p}")
 
 # ---------- main ----------
 def main():
-    global VERBOSITY
+    global VERBOSITY, AUDIT_LEVEL, AUDIT_ROOT
     here = Path(__file__).resolve().parent
     cfg = yaml.safe_load((here / "config.yaml").read_text(encoding="utf-8"))
 
-    VERBOSITY             = int(cfg.get("verbosity", 0))
-    DRY_RUN               = bool(cfg.get("dry_run", True))
-    SHOW_DELETED_FILE_DETAILS = DRY_RUN or (VERBOSITY >= 1)
+    VERBOSITY              = int(cfg.get("verbosity", 0))
+    DRY_RUN                = bool(cfg.get("dry_run", True))
     WRITE_RUN_SUMMARY_JSON = bool(cfg.get("write_run_summary_json", False))
+    AUDIT_LEVEL            = cfg.get("audit_detail_level", "summary")
 
     # Config (using your alias dirs)
-    STAGING             = Path(cfg["staging_root"])  # /mnt/c/Users/Neophile/Desktop/mobile
+    STAGING             = Path(cfg["staging_root"])
+    AUDIT_ROOT          = STAGING  # /mnt/c/Users/Neophile/Desktop/mobile
     IMAGE_RENAMER_DIR   = Path(cfg["image_renamer_dir"])
     FILES_IN_FOLDER_DIR = Path(cfg["files_in_folder_dir"])
     RENAME_IN           = Path(cfg["rename_tool_input"])
@@ -397,16 +355,13 @@ def main():
 
         # --- Step 1: DCIM/Camera/* -> RENAME_IN ---
         src_camera = P_DCIM / "Camera"
-        unwanted1 = list_unwanted_files(src_camera) if SHOW_DELETED_FILE_DETAILS else []
-        del1 = len(unwanted1) if DRY_RUN else cleanup_unwanted(src_camera, False)
-        n1  = count_files_in_children(src_camera, exclude_trashed=True)
+        del1 = cleanup_unwanted(src_camera, DRY_RUN)
+        n1   = count_files_in_children(src_camera, exclude_trashed=True)
         ensure_dir(RENAME_IN, DRY_RUN)
         s1 = dedupe_move_children_with_progress(src_camera, RENAME_IN, DRY_RUN, desc="Step 1 transfer", total_files=n1)
         s1.deleted_unwanted = del1
         event(f"Step 1: {'would delete' if DRY_RUN else 'deleted'} {del1} unwanted; {moved_phrase(s1, n1, DRY_RUN)} "
               f"(skipped {s1.skipped_dupes} dupes, conflicts {s1.conflicts}) from {src_camera} -> {RENAME_IN}")
-        if SHOW_DELETED_FILE_DETAILS:
-            print_step_unwanted_details("Step 1", DRY_RUN, str(src_camera), unwanted1)
         event("")
 
         # --- Step 2: run image_renamer.py ---
@@ -415,15 +370,12 @@ def main():
         event("")
 
         # --- Step 3: RENAME_IN/* -> Desktop/mobile/Camera ---
-        unwanted3 = list_unwanted_files(RENAME_IN) if SHOW_DELETED_FILE_DETAILS else []
-        del3 = len(unwanted3) if DRY_RUN else cleanup_unwanted(RENAME_IN, False)
-        n3  = count_files_in_children(RENAME_IN, exclude_trashed=True)
+        del3 = cleanup_unwanted(RENAME_IN, DRY_RUN)
+        n3   = count_files_in_children(RENAME_IN, exclude_trashed=True)
         s3 = dedupe_move_children_with_progress(RENAME_IN, DESKTOP_CAM, DRY_RUN, desc="Step 3 transfer", total_files=n3)
         s3.deleted_unwanted = del3
         event(f"Step 3: {'would delete' if DRY_RUN else 'deleted'} {del3} unwanted; {moved_phrase(s3, n3, DRY_RUN)} "
               f"(skipped {s3.skipped_dupes} dupes, conflicts {s3.conflicts}) from {RENAME_IN} -> {DESKTOP_CAM}")
-        if SHOW_DELETED_FILE_DETAILS:
-            print_step_unwanted_details("Step 3", DRY_RUN, str(RENAME_IN), unwanted3)
         event("")
 
         # --- Step 4: run files_in_folder.py ---
@@ -433,15 +385,12 @@ def main():
 
         # --- Step 5: Dropbox/Camera Uploads/* -> dest Camera ---
         dropbox_cu = Path(DROPBOX_CU)
-        unwanted5 = list_unwanted_files(dropbox_cu) if SHOW_DELETED_FILE_DETAILS else []
-        del5 = len(unwanted5) if DRY_RUN else cleanup_unwanted(dropbox_cu, False)
-        n5  = count_files_in_children(dropbox_cu, exclude_trashed=True)
+        del5 = cleanup_unwanted(dropbox_cu, DRY_RUN)
+        n5   = count_files_in_children(dropbox_cu, exclude_trashed=True)
         s5 = dedupe_move_children_with_progress(dropbox_cu, dest_camera, DRY_RUN, desc="Step 5 transfer", total_files=n5)
         s5.deleted_unwanted = del5
         event(f"Step 5: {'would delete' if DRY_RUN else 'deleted'} {del5} unwanted; {moved_phrase(s5, n5, DRY_RUN)} "
               f"(skipped {s5.skipped_dupes} dupes, conflicts {s5.conflicts}) from {DROPBOX_CU} -> {dest_camera}")
-        if SHOW_DELETED_FILE_DETAILS:
-            print_step_unwanted_details("Step 5", DRY_RUN, str(dropbox_cu), unwanted5)
         event("")
 
         # --- Step 6: catch-all Pictures routing ---
@@ -451,16 +400,8 @@ def main():
         else:
             event("  Step 6 routed sources -> Pictures: (none)")
 
-        unwanted6_groups: list[tuple[str, list[Path]]] = []
-        if SHOW_DELETED_FILE_DETAILS:
-            unwanted6_groups = [(label, list_unwanted_files(src)) for label, src, _target in step6_sources]
-
-        if DRY_RUN:
-            total_del6 = sum(len(files) for _label, files in unwanted6_groups)
-        else:
-            total_del6 = sum(cleanup_unwanted(src, False) for _label, src, _target in step6_sources)
-
-        n6_total = sum(count_files_in_path(src, exclude_trashed=True) for _label, src, _target in step6_sources)
+        total_del6 = sum(cleanup_unwanted(src, DRY_RUN) for _label, src, _target in step6_sources)
+        n6_total   = sum(count_files_in_path(src, exclude_trashed=True) for _label, src, _target in step6_sources)
 
         s6 = MoveStats()
         upd, close = progress_start(n6_total, "Step 6 transfer (Pictures aggregate)", enabled=not DRY_RUN)
@@ -476,23 +417,15 @@ def main():
             f"{moved_phrase(s6, n6_total, DRY_RUN)} "
             f"(skipped {s6.skipped_dupes} dupes, conflicts {s6.conflicts}) to {dest_pictures}"
         )
-        if SHOW_DELETED_FILE_DETAILS and total_del6 > 0:
-            print_step6_unwanted_details(
-                DRY_RUN,
-                unwanted6_groups,
-            )
         event("")
 
         # --- Step 7: Movies/* -> dest_movies ---
-        unwanted7 = list_unwanted_files(P_MOVIES) if SHOW_DELETED_FILE_DETAILS else []
-        del7 = len(unwanted7) if DRY_RUN else cleanup_unwanted(P_MOVIES, False)
+        del7 = cleanup_unwanted(P_MOVIES, DRY_RUN)
         n7   = count_files_in_children(P_MOVIES, exclude_trashed=True)
         s7   = dedupe_move_children_with_progress(P_MOVIES, dest_movies, DRY_RUN, desc="Step 7 transfer (Movies)", total_files=n7)
         s7.deleted_unwanted = del7
         event(f"Step 7: {'would delete' if DRY_RUN else 'deleted'} {del7} unwanted; {moved_phrase(s7, n7, DRY_RUN)} "
               f"(skipped {s7.skipped_dupes} dupes, conflicts {s7.conflicts}) from {P_MOVIES} -> {dest_movies}")
-        if SHOW_DELETED_FILE_DETAILS:
-            print_step_unwanted_details("Step 7", DRY_RUN, str(P_MOVIES), unwanted7)
         event("")
 
         # --- Run summary ---
