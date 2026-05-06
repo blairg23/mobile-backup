@@ -23,3 +23,4 @@ desktop_mobile_camera: "/mnt/c/Users/Neophile/Desktop/mobile/DCIM/Camera"
 dry_run: false
 verbosity: 0              # 0=events only, 1=notes incl deleted-file details, 2=debug
 write_run_summary_json: false  # true = write run_summary_{span}.json alongside the log
+audit_detail_level: summary  # summary|deletions|actions
