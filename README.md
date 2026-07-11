@@ -16,6 +16,11 @@ Manual shuffles suck. This script codifies the flow you already do:
 3) Verify the files exist in Dropbox Camera Uploads.
 4) Move everything into a Google Drive month folder named like `202509_202510`.
 
+Renaming and verification used to live in two separate sibling repos
+(`rename-images-to-datetime`, `files-in-folder`) that this project shelled out to.
+That logic now lives here as `rename_images.py` and `organize_files.py`, callable
+directly or as standalone CLI subcommands -- no more juggling three repos/envs.
+
 ## What it does (the short version)
 
 - **Dedupes by content**: if the same file already exists at the destination → skip and delete the source copy.
@@ -31,9 +36,6 @@ Manual shuffles suck. This script codifies the flow you already do:
 
 - Python 3.10+
 - Poetry (https://python-poetry.org/)
-- Your two helper repos/scripts:
-  - `rename-images-to-datetime` (exposes `image_renamer.py`)
-  - `files-in-folder` (exposes `files_in_folder.py`)
 - (Optional) `tqdm` for pretty progress bars.
 
 WSL users: Windows paths like `C:\Users\...` become `/mnt/c/Users/...`.
@@ -62,13 +64,8 @@ where you drop DCIM, Download/Downloads, Movies, Pictures from the phone
 
 staging_root: `/path/to/Desktop/mobile`
 
-### Tools
-image_renamer_dir: `/path/to/rename-images-to-datetime`
-
-files_in_folder_dir: `/path/to/files-in-folder`
-
-### Renamer input dir
-rename_tool_input: `/path/to/rename-images-to-datetime/input`
+### Renamer working directory (Step 2 renames whatever lands here)
+rename_tool_input: `/path/to/mobile-backup/input`
 
 ### Dropbox camera uploads
 dropbox_camera_uploads: `/path/to/Dropbox/Camera Uploads`
@@ -83,11 +80,6 @@ destination_span_override: `202601_202603`   # explicit override
 ### Where Camera files sit after rename (Desktop/mobile/DCIM/Camera)
 desktop_mobile_camera: `/path/to/Desktop/mobile/DCIM/Camera`
 
-### Commands for your tools
-image_renamer_cmd: [`poetry`, `run`, `python`, `image_renamer.py`]
-
-files_in_folder_cmd: [`poetry`, `run`, `python`, `files_in_folder.py`]
-
 ### Defaults
 `dry_run: true`      # start safe; prints “would move/delete …” lines
 `verbosity: 0`       # 0=quiet, 1=notes (includes deleted-file details in real run), 2=debug
@@ -98,9 +90,15 @@ Note: If `destination_span_override` is null/empty, month folder names are autom
 
 ## Usage
 
+`mobile_backup.py` is a small CLI with three subcommands:
+
+- `run` -- the full pipeline (steps 1-7 below)
+- `rename` -- standalone: rename images in `rename_tool_input` by EXIF/filename datetime
+- `organize` -- standalone: verify `desktop_mobile_camera` files exist in `dropbox_camera_uploads`, copying over anything missing
+
 ### 1) Dry-run (recommended)
 
-Run: `poetry run python mobile_backup.py`
+Run: `poetry run python mobile_backup.py run`
 
 Expected output (example):
 Destination span: `202509_202510` (auto)
@@ -115,7 +113,7 @@ Done. (dry run)
 
 ### 2) Real run
 
-Flip `dry_run: false` in `config.yaml`, then run: `poetry run python mobile_backup.py`
+Flip `dry_run: false` in `config.yaml`, then run: `poetry run python mobile_backup.py run`
 
 You’ll get progress bars and a full log inside the month folder.
 
@@ -182,8 +180,10 @@ You manually drop the phone’s exported folders here (via MTP, Android File Tra
 
 ## Development
 
-Install: `poetry install`
-Run tests (if/when they exist): `poetry run python -m pytest`
+Install: `poetry install --with dev`
+Run tests: `poetry run pytest`
+Full gate (format check + lint + type + coverage): `poetry run tox`
+Auto-format: `poetry run tox -e format`
 
 Housekeeping:
 - Keep `config.yaml` local (ignored by git).
