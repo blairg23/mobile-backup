@@ -19,7 +19,7 @@ pytest = "^8.0"
 pytest-cov = "^6.0"
 black = "^24.0"
 ruff = "^0.6"
-mypy = "^1.11"
+mypy = ">=1.11,<3.0"
 types-PyYAML = "^6.0"
 
 [tool.pytest.ini_options]
