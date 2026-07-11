@@ -190,21 +190,44 @@ class FilesInFolder:
             print(e)
 
     def write_missing_files(self, missing_filepaths=None, destination_directory=None):
-        """Writes missing files to the destination filepath."""
-        try:
-            if not missing_filepaths:
-                raise Exception(
-                    "[ERROR] Need to provide a valid list of missing files."
-                )
-            for missing_filepath in missing_filepaths:
-                missing_filename = os.path.basename(missing_filepath)
-                # Use copy2 to retain metadata such as creation and modification times
-                destination_filepath = os.path.join(
-                    destination_directory, missing_filename
-                )
-                shutil.copy2(missing_filepath, destination_filepath)
-        except Exception as e:
-            print(e)
+        """Writes missing files to the destination directory.
+
+        A destination path that already exists (but under a different hash --
+        that's why the source file is "missing" in the first place) is never
+        overwritten; the source is quarantined into a _conflicts/ subdirectory
+        instead, matching how the rest of the pipeline handles name collisions.
+
+        Returns (copied, conflicts, errors): lists of source filepaths.
+        """
+        copied: list[str] = []
+        conflicts: list[str] = []
+        errors: list[str] = []
+        if not missing_filepaths:
+            print("[ERROR] Need to provide a valid list of missing files.")
+            return copied, conflicts, errors
+        for missing_filepath in missing_filepaths:
+            missing_filename = os.path.basename(missing_filepath)
+            destination_filepath = os.path.join(destination_directory, missing_filename)
+            try:
+                if os.path.exists(destination_filepath):
+                    conflicts_dir = os.path.join(destination_directory, "_conflicts")
+                    os.makedirs(conflicts_dir, exist_ok=True)
+                    stem, ext = os.path.splitext(missing_filename)
+                    target = os.path.join(conflicts_dir, missing_filename)
+                    i = 1
+                    while os.path.exists(target):
+                        target = os.path.join(conflicts_dir, f"{stem}_conflict{i}{ext}")
+                        i += 1
+                    # Use copy2 to retain metadata such as creation and modification times
+                    shutil.copy2(missing_filepath, target)
+                    conflicts.append(missing_filepath)
+                else:
+                    shutil.copy2(missing_filepath, destination_filepath)
+                    copied.append(missing_filepath)
+            except Exception as e:
+                print(e)
+                errors.append(missing_filepath)
+        return copied, conflicts, errors
 
     def cleanup(self):
         """Cleans up metadata files like contents.csv and missing.txt."""
@@ -323,11 +346,15 @@ class FilesInFolder:
                     self.action_counter += 1
 
                     if self.fix_missing_files and not reran_after_copy:
-                        self.write_missing_files(
+                        _copied, _conflicts, errors = self.write_missing_files(
                             missing_filepaths=missing_hash_value_filepaths,
                             destination_directory=target_dir,
                         )
                         self.action_counter += 1
+                        if errors:
+                            raise RuntimeError(
+                                f"Failed to sync {len(errors)} file(s) to {target_dir}: {errors}"
+                            )
                         self.cleanup()
                         reran_after_copy = True
                         continue  # Re-run the check once after copying files
