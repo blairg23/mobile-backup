@@ -2,27 +2,46 @@
 from __future__ import annotations
 from pathlib import Path
 from datetime import datetime
-import argparse, os, sys, yaml, hashlib, shutil
+import argparse
+import os
+import sys
+import yaml
+import hashlib
+import shutil
 from backup_utils import LogTee
 
 # ---------- junk filter (matches mobile_backup.py) ----------
 UNWANTED_EXACT = {"contents.csv", "desktop.ini"}  # case-insensitive
 CONFLICTS_DIR_NAME = "_conflicts"
 
-def is_trashed_name(name: str) -> bool: return name.startswith(".trashed")
-def is_thumbnails_name(name: str) -> bool: return name.lower() == ".thumbnails"
+
+def is_trashed_name(name: str) -> bool:
+    return name.startswith(".trashed")
+
+
+def is_thumbnails_name(name: str) -> bool:
+    return name.lower() == ".thumbnails"
+
+
 def is_unwanted_name(name: str) -> bool:
-    return is_trashed_name(name) or is_thumbnails_name(name) or (name.lower() in UNWANTED_EXACT)
+    return (
+        is_trashed_name(name)
+        or is_thumbnails_name(name)
+        or (name.lower() in UNWANTED_EXACT)
+    )
+
 
 # ---------- hashing / identical checks ----------
-def sha256sum(p: Path, chunk: int = 1024*1024) -> str:
+def sha256sum(p: Path, chunk: int = 1024 * 1024) -> str:
     h = hashlib.sha256()
     with p.open("rb") as f:
         while True:
             b = f.read(chunk)
-            if not b: break
+            if not b:
+                break
             h.update(b)
     return h.hexdigest()
+
 
 def files_identical(a: Path, b: Path) -> bool:
     try:
@@ -33,14 +52,18 @@ def files_identical(a: Path, b: Path) -> bool:
         return False
     return sha256sum(a) == sha256sum(b)
 
+
 # ---------- utilities ----------
 def count_files_in_path(p: Path) -> int:
-    if not p.exists(): return 0
-    if p.is_file(): return 1
+    if not p.exists():
+        return 0
+    if p.is_file():
+        return 1
     total = 0
     for _r, _d, files in os.walk(p):
         total += len(files)
     return total
+
 
 def ensure_conflicts(dest: Path, apply: bool) -> Path:
     c = dest / CONFLICTS_DIR_NAME
@@ -48,26 +71,30 @@ def ensure_conflicts(dest: Path, apply: bool) -> Path:
         c.mkdir(parents=True, exist_ok=True)
     return c
 
+
 # ---------- junk cleanup ----------
 def cleanup_unwanted(root: Path, apply: bool) -> int:
     """Remove .trashed*, .thumbnails, Contents.csv, desktop.ini; return # files removed (counts files inside deleted dirs)."""
-    if not root.exists(): return 0
+    if not root.exists():
+        return 0
     removed = 0
     trash_dirs, files_to_del = [], []
     for cur, dirs, files in os.walk(root, topdown=True):
         dels = [d for d in dirs if is_trashed_name(d) or is_thumbnails_name(d)]
-        trash_dirs += [Path(cur)/d for d in dels]
+        trash_dirs += [Path(cur) / d for d in dels]
         dirs[:] = [d for d in dirs if d not in dels]
         for f in files:
             if is_unwanted_name(f):
-                files_to_del.append(Path(cur)/f)
+                files_to_del.append(Path(cur) / f)
 
-    for f in files_to_del:
+    for file_to_del in files_to_del:
         removed += 1
-        print(f"delete file: {f}")
+        print(f"delete file: {file_to_del}")
         if apply:
-            try: f.unlink(missing_ok=True)
-            except Exception: pass
+            try:
+                file_to_del.unlink(missing_ok=True)
+            except Exception:
+                pass
 
     for d in trash_dirs:
         c = count_files_in_path(d)
@@ -78,14 +105,16 @@ def cleanup_unwanted(root: Path, apply: bool) -> int:
 
     return removed
 
+
 # ---------- file & dir suffix (“_1”) fixers ----------
 def base_name_for_suffix(name: str) -> str | None:
     """Return base name without `_1` suffix (before extension), else None."""
-    if name.endswith("_1"):         # no extension
+    if name.endswith("_1"):  # no extension
         return name[:-2] if len(name) > 2 else None
     if "_1." in name:
         return name.replace("_1.", ".", 1)  # only first occurrence
     return None
+
 
 def fix_suffix_file(p1: Path, apply: bool) -> tuple[str, Path, Path | None]:
     """
@@ -104,8 +133,10 @@ def fix_suffix_file(p1: Path, apply: bool) -> tuple[str, Path, Path | None]:
     if files_identical(p1, p0):
         print(f"delete duplicate file: {p1} (identical to {p0})")
         if apply:
-            try: p1.unlink()
-            except Exception: pass
+            try:
+                p1.unlink()
+            except Exception:
+                pass
         return ("delete_dupe", p1, p0)
     cdir = ensure_conflicts(p1.parent, apply)
     target = cdir / p1.name
@@ -117,6 +148,7 @@ def fix_suffix_file(p1: Path, apply: bool) -> tuple[str, Path, Path | None]:
     if apply:
         shutil.move(str(p1), str(target))
     return ("conflict_quarantined", p1, target)
+
 
 def dedupe_merge_dir(src: Path, dst: Path, apply: bool) -> tuple[int, int, int]:
     """
@@ -141,8 +173,10 @@ def dedupe_merge_dir(src: Path, dst: Path, apply: bool) -> tuple[int, int, int]:
                 if files_identical(child, target):
                     print(f"delete duplicate file: {child} (identical to {target})")
                     if apply:
-                        try: child.unlink()
-                        except Exception: pass
+                        try:
+                            child.unlink()
+                        except Exception:
+                            pass
                     deleted_dupes += 1
                 else:
                     cdir = ensure_conflicts(dst, apply)
@@ -162,11 +196,16 @@ def dedupe_merge_dir(src: Path, dst: Path, apply: bool) -> tuple[int, int, int]:
                 moved += 1
         elif child.is_dir():
             m, d, c = dedupe_merge_dir(child, dst / child.name, apply)
-            moved += m; deleted_dupes += d; conflicts += c
+            moved += m
+            deleted_dupes += d
+            conflicts += c
     if apply:
-        try: src.rmdir()
-        except OSError: pass
+        try:
+            src.rmdir()
+        except OSError:
+            pass
     return moved, deleted_dupes, conflicts
+
 
 def fix_suffix_dir(src: Path, apply: bool) -> tuple[str, Path, Path]:
     """
@@ -185,8 +224,11 @@ def fix_suffix_dir(src: Path, apply: bool) -> tuple[str, Path, Path]:
         return ("renamed_to_base", src, base)
     print(f"merge dir: {src} -> {base}")
     moved, dups, confs = dedupe_merge_dir(src, base, apply)
-    print(f"  merge summary for {src.name}: moved={moved}, deleted_dupes={dups}, conflicts={confs}")
+    print(
+        f"  merge summary for {src.name}: moved={moved}, deleted_dupes={dups}, conflicts={confs}"
+    )
     return ("merged_into_base", src, base)
+
 
 # ---------- path resolution ----------
 def resolve_month_path(cfg: dict, arg_path: str) -> Path:
@@ -196,27 +238,38 @@ def resolve_month_path(cfg: dict, arg_path: str) -> Path:
     base = Path(cfg["google_mobile_base"])
     return base / arg_path
 
+
 # ---------- main ----------
 def main():
     here = Path(__file__).resolve().parent
-    cfg = yaml.safe_load((here/"config.yaml").read_text(encoding="utf-8"))
+    cfg = yaml.safe_load((here / "config.yaml").read_text(encoding="utf-8"))
     if "google_mobile_base" not in cfg:
-        print("config.yaml must include google_mobile_base", file=sys.stderr); sys.exit(2)
+        print("config.yaml must include google_mobile_base", file=sys.stderr)
+        sys.exit(2)
 
-    ap = argparse.ArgumentParser(description="Clean junk and fix *_1 files/folders in a month folder.")
-    ap.add_argument("folder", help="month folder name or full path (e.g., 202509_202510)")
-    ap.add_argument("--apply", action="store_true", help="apply changes (default is dry-run)")
+    ap = argparse.ArgumentParser(
+        description="Clean junk and fix *_1 files/folders in a month folder."
+    )
+    ap.add_argument(
+        "folder", help="month folder name or full path (e.g., 202509_202510)"
+    )
+    ap.add_argument(
+        "--apply", action="store_true", help="apply changes (default is dry-run)"
+    )
     args = ap.parse_args()
 
     month_path = resolve_month_path(cfg, args.folder).resolve()
     if not month_path.exists():
-        print(f"No such folder: {month_path}", file=sys.stderr); sys.exit(2)
+        print(f"No such folder: {month_path}", file=sys.stderr)
+        sys.exit(2)
 
     log_path = month_path / "cleanup_log.txt"
     # use context manager so stdio is always restored before file close
     with LogTee(log_path, mode="a"):
-        print("="*72)
-        print(f"Cleanup run @ {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}  (apply={args.apply})")
+        print("=" * 72)
+        print(
+            f"Cleanup run @ {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}  (apply={args.apply})"
+        )
         print(f"Target: {month_path}")
         print(f"Log:    {log_path}")
 
@@ -225,20 +278,22 @@ def main():
         print(f"Junk removed: {removed} item(s)")
 
         # 2) fix *_1 files (rename/delete/quarantine-by-content)
-        file_actions = {"delete_dupe":0, "moved_to_base":0, "conflict_quarantined":0}
+        file_actions = {"delete_dupe": 0, "moved_to_base": 0, "conflict_quarantined": 0}
         for dirpath, _dirs, files in os.walk(month_path):
             d = Path(dirpath)
             for f in files:
                 base = base_name_for_suffix(f)
                 if not base:
                     continue
-                action, _src, _target = fix_suffix_file(d/f, apply=args.apply)
+                action, _src, _target = fix_suffix_file(d / f, apply=args.apply)
                 if action in file_actions:
                     file_actions[action] += 1
 
-        print(f"File suffix fixes: deleted_dupes={file_actions['delete_dupe']}, "
-              f"moved_to_base={file_actions['moved_to_base']}, "
-              f"conflicts_quarantined={file_actions['conflict_quarantined']}")
+        print(
+            f"File suffix fixes: deleted_dupes={file_actions['delete_dupe']}, "
+            f"moved_to_base={file_actions['moved_to_base']}, "
+            f"conflicts_quarantined={file_actions['conflict_quarantined']}"
+        )
 
         # 3) fix *_1 directories (rename or merge)
         dir_renamed = 0
@@ -257,7 +312,8 @@ def main():
 
         print(f"Dir suffix fixes: renamed={dir_renamed}, merged={dir_merged}")
         print("Done.")
-        print("="*72)
+        print("=" * 72)
+
 
 if __name__ == "__main__":
     main()

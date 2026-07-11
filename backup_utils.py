@@ -6,12 +6,16 @@ import sys
 
 class _SafeStream:
     """Wraps a stream and ignores write/flush errors during shutdown."""
-    def __init__(self, stream): self.stream = stream
+
+    def __init__(self, stream):
+        self.stream = stream
+
     def write(self, data):
         try:
             self.stream.write(data)
         except Exception:
             pass
+
     def flush(self):
         try:
             self.stream.flush()
@@ -24,6 +28,7 @@ class LogTee:
     Context manager that tees stdout/stderr to a file + console, restoring on exit.
     Prevents unraisablehook noise by swallowing write/flush errors during shutdown.
     """
+
     def __init__(self, logfile: Path, mode: str = "w"):
         self.logfile = logfile
         self.mode = mode
@@ -58,9 +63,14 @@ class LogTee:
     def _tee(console_stream, file_stream):
         console = _SafeStream(console_stream)
         fileobj = _SafeStream(file_stream)
+
         class _Tee:
             def write(self, data):
-                console.write(data); fileobj.write(data)
+                console.write(data)
+                fileobj.write(data)
+
             def flush(self):
-                console.flush(); fileobj.flush()
+                console.flush()
+                fileobj.flush()
+
         return _Tee()
