@@ -15,9 +15,9 @@ Pillow = ">=12.2.0"
 tqdm = "^4.67.1"
 
 [tool.poetry.group.dev.dependencies]
-pytest = "^8.0"
+pytest = ">=8,<10"
 pytest-cov = "^6.0"
-black = "^24.0"
+black = ">=24,<27"
 ruff = ">=0.6,<0.16"
 mypy = ">=1.11,<3.0"
 types-PyYAML = "^6.0"
