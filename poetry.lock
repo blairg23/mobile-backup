@@ -247,15 +247,19 @@ test = ["pytest (>=6)"]
 
 [[package]]
 name = "exifread"
-version = "2.3.2"
-description = "Read Exif metadata from tiff and jpeg files."
+version = "3.5.1"
+description = "Library to extract Exif information from digital camera image files."
 optional = false
-python-versions = "*"
+python-versions = ">=3.7"
 groups = ["main"]
 files = [
-    {file = "ExifRead-2.3.2-py3-none-any.whl", hash = "sha256:3ef8725efdb66530b4b3cd1c4ba5d3f3b35a7872137d2c707f711971f8ebf809"},
-    {file = "ExifRead-2.3.2.tar.gz", hash = "sha256:a0f74af5040168d3883bbc980efe26d06c89f026dc86ba28eb34107662d51766"},
+    {file = "exifread-3.5.1-py3-none-any.whl", hash = "sha256:e5426ce2857423ad401e575ea9d159dc97449dc041fb6e61b35109caea72c311"},
+    {file = "exifread-3.5.1.tar.gz", hash = "sha256:9f998f80d3062741c976dfc4fd033424bc40932937994e4d2181eb70c4b6aedd"},
 ]
+
+[package.extras]
+dev = ["build (>=1.0,<2.0)", "pre-commit (>=2.21,<3.0)", "pylint (>=3.1,<4.0)"]
+test = ["pytest (>=7.4,<8.0)"]
 
 [[package]]
 name = "iniconfig"
@@ -900,4 +904,4 @@ files = [
 [metadata]
 lock-version = "2.1"
 python-versions = "^3.10"
-content-hash = "061110b382cf646e894b1254ea7fd1aa9b2047e250f3b14a1b08ebb632b8d7f1"
+content-hash = "f93e43e4a009f8a5b33a8fbbdb9b887260eb2f0614e2e99e05106623510e2155"
