@@ -16,7 +16,7 @@ tqdm = "^4.67.1"
 
 [tool.poetry.group.dev.dependencies]
 pytest = ">=8,<10"
-pytest-cov = "^6.0"
+pytest-cov = ">=6,<8"
 black = ">=24,<27"
 ruff = ">=0.6,<0.16"
 mypy = ">=1.11,<3.0"
