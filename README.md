@@ -111,9 +111,21 @@ dropbox_camera_uploads: `/path/to/Dropbox/Camera Uploads`
 ### Google Drive "Mobile" base (script writes into `{prev}_{curr}` here)
 google_mobile_base: `/path/to/Google Drive/Multimedia/Pictures/Personal/Mobile`
 
-### Optional destination span override
-destination_span_override: `null`            # auto month span
-destination_span_override: `202601_202603`   # explicit override
+### Destination span (which `{span}` folder files land in)
+
+`destination_span_mode`:
+- `prev_curr_month` (default) -- auto `{prev}_{curr}` calendar month, e.g. `202509_202510`
+- `file_date_range` -- derive the span from the actual dates of the files being processed. Use this for backfilling a batch of staged files that spans more than one month; a single `run` will land everything in one `{min-month}_{max-month}` folder instead of mislabeling old files under today's month.
+- `override` -- use `destination_span_override` verbatim
+
+```yaml
+destination_span_mode: prev_curr_month
+destination_span_override: null              # used only when mode is "override"
+destination_span_date_source: filename        # filename|mtime|exif -- tried first, then the other two as fallback
+destination_span_on_parse_failure: fallback_prev_curr  # fail|fallback_prev_curr
+```
+
+`destination_span_date_source` only matters in `file_date_range` mode: it's the *first* source tried per file; if that fails, the other two are tried in a fixed order (filename, mtime, exif) before giving up on that file. `destination_span_on_parse_failure` only matters if more than half the staged files can't be dated by any source -- `fail` raises, `fallback_prev_curr` falls back to the auto month-span behavior for the whole run.
 
 ### Where Camera files sit after rename (Desktop/mobile/DCIM/Camera)
 desktop_mobile_camera: `/path/to/Desktop/mobile/DCIM/Camera`
@@ -121,8 +133,6 @@ desktop_mobile_camera: `/path/to/Desktop/mobile/DCIM/Camera`
 ### Defaults
 `dry_run: true`      # start safe; prints “would move/delete …” lines
 `verbosity: 0`       # 0=quiet, 1=notes (includes deleted-file details in real run), 2=debug
-
-Note: If `destination_span_override` is null/empty, month folder names are automatically computed as `{previous_year}{previous_month}_{current_year}{current_month}` (e.g., `202509_202510`).
 
 ---
 

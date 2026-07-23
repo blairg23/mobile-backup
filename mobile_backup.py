@@ -9,7 +9,12 @@ import os
 import yaml
 import hashlib
 from backup_utils import LogTee
-from rename_images import rename_images_in_directory
+from rename_images import (
+    ExifReadWorker,
+    FROM_DATETIME_FORMAT,
+    TO_DATETIME_FORMAT,
+    rename_images_in_directory,
+)
 from organize_files import verify_and_sync
 
 # optional pretty progress
@@ -88,20 +93,176 @@ def month_span() -> str:
     return f"{prev_y:04d}{prev_m:02d}_{t.year:04d}{t.month:02d}"
 
 
-def resolve_destination_span(cfg: dict) -> tuple[str, bool]:
-    """
-    Resolve destination span folder name.
-    Returns (span, overridden) where overridden indicates explicit config override.
-    """
+SPAN_MODES = {"prev_curr_month", "file_date_range", "override"}
+# Ordered: also defines the fixed fallback order used by extract_file_date().
+DATE_SOURCE_ORDER = ("filename", "mtime", "exif")
+DATE_SOURCES = set(DATE_SOURCE_ORDER)
+PARSE_FAILURE_POLICIES = {"fail", "fallback_prev_curr"}
+
+# Files dropped from a phone may already have been through a prior partial
+# rename, so try both the pre-rename and post-rename filename conventions.
+_FILENAME_DATE_FORMATS = (FROM_DATETIME_FORMAT, TO_DATETIME_FORMAT)
+
+
+def _resolve_span_mode(cfg: dict) -> str:
+    mode = cfg.get("destination_span_mode")
+    if mode is not None:
+        if mode not in SPAN_MODES:
+            raise ValueError(
+                f"config.destination_span_mode must be one of {sorted(SPAN_MODES)}, "
+                f"got {mode!r}"
+            )
+        return mode
+    # No explicit mode: infer from the legacy override field so existing
+    # configs keep behaving exactly as before.
     override = cfg.get("destination_span_override")
     if override is None:
-        return month_span(), False
+        return "prev_curr_month"
     if not isinstance(override, str):
         raise ValueError("config.destination_span_override must be a string when set")
-    override = override.strip()
-    if not override:
-        return month_span(), False
-    return override, True
+    return "override" if override.strip() else "prev_curr_month"
+
+
+def _date_from_filename(path: Path) -> date | None:
+    stem = path.stem
+    for fmt in _FILENAME_DATE_FORMATS:
+        try:
+            return datetime.strptime(stem, fmt).date()
+        except ValueError:
+            continue
+    return None
+
+
+def _date_from_mtime(path: Path) -> date | None:
+    try:
+        return date.fromtimestamp(path.stat().st_mtime)
+    except OSError:
+        return None
+
+
+def _date_from_exif(path: Path) -> date | None:
+    try:
+        worker = ExifReadWorker(str(path))
+    except Exception:
+        return None
+    return worker.date.date() if worker.date else None
+
+
+_DATE_EXTRACTORS = {
+    "filename": _date_from_filename,
+    "mtime": _date_from_mtime,
+    "exif": _date_from_exif,
+}
+
+
+def extract_file_date(path: Path, primary_source: str) -> date | None:
+    """Try primary_source first, then fall back through the remaining sources
+    (fixed order: filename, mtime, exif) until one produces a date."""
+    order = [primary_source] + [s for s in DATE_SOURCE_ORDER if s != primary_source]
+    for source in order:
+        result = _DATE_EXTRACTORS[source](path)
+        if result is not None:
+            return result
+    return None
+
+
+def _has_unwanted_ancestor(path: Path, root: Path) -> bool:
+    """True if any directory between root and path is junk (.trashed*,
+    .thumbnails) that cleanup_unwanted() will delete wholesale before any
+    file inside it is ever moved."""
+    try:
+        rel_parts = path.relative_to(root).parts[:-1]
+    except ValueError:
+        rel_parts = path.parts[:-1]
+    return any(is_trashed_name(part) or is_thumbnails_name(part) for part in rel_parts)
+
+
+def compute_file_date_range_span(
+    staging_root: Path,
+    *,
+    date_source: str,
+    on_parse_failure: str,
+) -> tuple[str, dict]:
+    """Scan staging_root for a min/max date across its files and derive a
+    YYYYMM_YYYYMM span from it. Returns (span, diagnostics)."""
+    files = [
+        p
+        for p in staging_root.rglob("*")
+        if p.is_file()
+        and not is_unwanted_name(p.name)
+        and not _has_unwanted_ancestor(p, staging_root)
+    ]
+    dated: list[date] = []
+    failed = 0
+    for f in files:
+        d = extract_file_date(f, date_source)
+        if d is None:
+            failed += 1
+        else:
+            dated.append(d)
+
+    total = len(files)
+    if not dated or (total > 0 and failed / total > 0.5):
+        if on_parse_failure == "fail":
+            raise RuntimeError(
+                f"destination_span_mode=file_date_range: could not determine dates "
+                f"for {failed}/{total} files (date_source={date_source!r})"
+            )
+        return month_span(), {"fallback": True, "failed": failed, "total": total}
+
+    lo, hi = min(dated), max(dated)
+    span = f"{lo.year:04d}{lo.month:02d}_{hi.year:04d}{hi.month:02d}"
+    return span, {
+        "fallback": False,
+        "failed": failed,
+        "total": total,
+        "min": lo,
+        "max": hi,
+    }
+
+
+def resolve_destination_span(cfg: dict) -> tuple[str, bool, dict]:
+    """
+    Resolve destination span folder name.
+    Returns (span, overridden, diagnostics) where overridden indicates the
+    span came from an explicit source (override or file_date_range) rather
+    than today's auto-computed prev/curr month.
+    """
+    mode = _resolve_span_mode(cfg)
+
+    if mode == "override":
+        override = cfg.get("destination_span_override")
+        if not isinstance(override, str) or not override.strip():
+            raise ValueError(
+                "config.destination_span_mode is 'override' but "
+                "destination_span_override is not set"
+            )
+        return override.strip(), True, {"mode": "override"}
+
+    if mode == "file_date_range":
+        date_source = cfg.get("destination_span_date_source", "filename")
+        if date_source not in DATE_SOURCES:
+            raise ValueError(
+                f"config.destination_span_date_source must be one of "
+                f"{sorted(DATE_SOURCES)}, got {date_source!r}"
+            )
+        on_parse_failure = cfg.get(
+            "destination_span_on_parse_failure", "fallback_prev_curr"
+        )
+        if on_parse_failure not in PARSE_FAILURE_POLICIES:
+            raise ValueError(
+                f"config.destination_span_on_parse_failure must be one of "
+                f"{sorted(PARSE_FAILURE_POLICIES)}, got {on_parse_failure!r}"
+            )
+        span, diagnostics = compute_file_date_range_span(
+            Path(cfg["staging_root"]),
+            date_source=date_source,
+            on_parse_failure=on_parse_failure,
+        )
+        diagnostics["mode"] = "file_date_range"
+        return span, not diagnostics["fallback"], diagnostics
+
+    return month_span(), False, {"mode": "prev_curr_month"}
 
 
 def ensure_dir(p: Path, dry: bool) -> None:
@@ -401,7 +562,7 @@ def run_pipeline(cfg: dict) -> None:
     P_MOVIES = STAGING / "Movies"
 
     # Destinations
-    span, span_overridden = resolve_destination_span(cfg)
+    span, _span_overridden, span_diagnostics = resolve_destination_span(cfg)
     dest_root = GDRIVE_BASE / span
     dest_camera = dest_root / "Camera"
     dest_pictures = dest_root / "Pictures"
@@ -426,10 +587,25 @@ def run_pipeline(cfg: dict) -> None:
             ensure_dir(dest_pictures, DRY_RUN)
             ensure_dir(dest_movies, DRY_RUN)
 
-        if span_overridden:
-            event(f'Destination span override: "{span}"')
+        span_mode = span_diagnostics.get("mode", "prev_curr_month")
+        if span_mode == "override":
+            event(f'Destination span: "{span}" (mode=override)')
+        elif span_mode == "file_date_range":
+            if span_diagnostics.get("fallback"):
+                event(
+                    f'Destination span: "{span}" (mode=file_date_range, fell back to '
+                    f"auto; {span_diagnostics.get('failed', 0)}/"
+                    f"{span_diagnostics.get('total', 0)} files undated)"
+                )
+            else:
+                event(
+                    f'Destination span: "{span}" (mode=file_date_range; range '
+                    f"{span_diagnostics['min']} to {span_diagnostics['max']}; "
+                    f"{span_diagnostics.get('failed', 0)}/"
+                    f"{span_diagnostics.get('total', 0)} files undated)"
+                )
         else:
-            event(f'Destination span: "{span}" (auto)')
+            event(f'Destination span: "{span}" (mode=prev_curr_month, auto)')
         event(f"Log: {log_path}")
         event(f'Destination: "{dest_root}"')
 
