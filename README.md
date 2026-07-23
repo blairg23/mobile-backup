@@ -1,7 +1,7 @@
 # mobile-backup
 
 Move your phone’s photos/videos from a desktop **staging area** into a **month-span** Google Drive folder, with:
-- file renaming (via your existing tool),
+- file renaming (in-process, by EXIF/filename datetime),
 - duplicate-aware moves (no more `_1` junk),
 - conflict quarantine,
 - junk sweeping (`.trashed*`, `.thumbnails`, `Contents.csv`, `desktop.ini`),
@@ -20,6 +20,44 @@ Renaming and verification used to live in two separate sibling repos
 (`rename-images-to-datetime`, `files-in-folder`) that this project shelled out to.
 That logic now lives here as `rename_images.py` and `organize_files.py`, callable
 directly or as standalone CLI subcommands -- no more juggling three repos/envs.
+
+## How it flows
+
+The `run` pipeline is 7 steps, moving files through a few intermediate directories
+before they land in the destination month-span folder. Every hop is dedupe-aware:
+identical content is skipped and the source deleted; same-name-but-different content
+is quarantined to `_conflicts/` instead of overwriting anything.
+
+```mermaid
+flowchart LR
+    subgraph Staging["staging_root (drop phone exports here)"]
+        DCIM_CAM["DCIM/Camera"]
+        DCIM_OTHER["DCIM/other subfolders"]
+        DL["Download(s)"]
+        PIC["Pictures"]
+        MOV["Movies"]
+    end
+
+    RENAME["rename_tool_input"]
+    DESKTOP["desktop_mobile_camera (local mirror)"]
+    DROPBOX["dropbox_camera_uploads"]
+
+    subgraph Dest["google_mobile_base / dest span folder"]
+        DEST_CAM["Camera"]
+        DEST_PIC["Pictures"]
+        DEST_MOV["Movies"]
+    end
+
+    DCIM_CAM -->|"Step 1: dedupe move"| RENAME
+    RENAME -->|"Step 2: rename by EXIF / filename datetime"| RENAME
+    RENAME -->|"Step 3: dedupe move"| DESKTOP
+    DESKTOP -->|"Step 4: verify, copy missing"| DROPBOX
+    DROPBOX -->|"Step 5: dedupe move"| DEST_CAM
+    DCIM_OTHER -->|"Step 6: catch-all"| DEST_PIC
+    DL -->|"Step 6: catch-all"| DEST_PIC
+    PIC -->|"Step 6: catch-all"| DEST_PIC
+    MOV -->|"Step 7: dedupe move"| DEST_MOV
+```
 
 ## What it does (the short version)
 
