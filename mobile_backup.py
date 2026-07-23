@@ -372,8 +372,16 @@ def load_config() -> dict:
 
 
 def main():
+    run_pipeline(load_config())
+
+
+def run_pipeline(cfg: dict) -> None:
+    """Run the full 7-step pipeline against an explicit config dict.
+
+    Split out from main() so tests can drive the pipeline with a synthetic,
+    tmp_path-rooted config -- never a real config.yaml or real directories.
+    """
     global VERBOSITY, AUDIT_LEVEL, AUDIT_ROOT
-    cfg = load_config()
 
     VERBOSITY = int(cfg.get("verbosity", 0))
     DRY_RUN = bool(cfg.get("dry_run", True))
