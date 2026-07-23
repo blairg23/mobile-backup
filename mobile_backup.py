@@ -527,13 +527,101 @@ def moved_phrase(stats: MoveStats, processed: int, dry: bool) -> str:
 
 
 # ---------- main ----------
-def load_config() -> dict:
-    here = Path(__file__).resolve().parent
-    return yaml.safe_load((here / "config.yaml").read_text(encoding="utf-8"))
+def load_config(config_path: Path | None = None) -> dict:
+    if config_path is None:
+        here = Path(__file__).resolve().parent
+        config_path = here / "config.yaml"
+    return yaml.safe_load(config_path.read_text(encoding="utf-8"))
 
 
-def main():
-    run_pipeline(load_config())
+def main(config_path: Path | None = None) -> None:
+    run_pipeline(load_config(config_path))
+
+
+# ---------- playground ----------
+def _write_dummy_file(path: Path, content: bytes) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(content)
+
+
+def _playground_camera_filenames() -> list[str]:
+    """Filenames spanning a few different months (including the current one),
+    in the YYYYMMDD_HHMMSS convention rename_images.py/extract_file_date()
+    already understand -- so file_date_range mode has a real range to compute."""
+    today = date.today()
+    names: list[str] = []
+    counter = 0
+    for months_back in (4, 2, 0):
+        year, month = today.year, today.month - months_back
+        while month <= 0:
+            month += 12
+            year -= 1
+        for day in (5, 20):
+            counter += 1
+            names.append(f"{year:04d}{month:02d}{day:02d}_09{counter:02d}00.mp4")
+    return names
+
+
+def generate_playground(target_dir: Path, *, force: bool = False) -> dict:
+    """Generate a synthetic staging tree plus a ready-to-use scratch config
+    under target_dir, entirely self-contained -- never reads or writes any
+    real staging/Dropbox/Google Drive path. Returns the paths generated."""
+    if target_dir.exists() and any(target_dir.iterdir()) and not force:
+        raise FileExistsError(
+            f"{target_dir} already exists and is not empty; pass --force to overwrite"
+        )
+
+    staging = target_dir / "staging"
+    rename_in = target_dir / "rename_tool_input"
+    dropbox_inbox = target_dir / "dropbox_camera_uploads"
+    desktop_mirror = target_dir / "desktop_mobile_camera"
+    dest_base = target_dir / "target"
+    for d in (staging, rename_in, dropbox_inbox, desktop_mirror, dest_base):
+        d.mkdir(parents=True, exist_ok=True)
+
+    camera = staging / "DCIM" / "Camera"
+    for name in _playground_camera_filenames():
+        _write_dummy_file(camera / name, f"playground camera file {name}".encode())
+
+    other_album = staging / "DCIM" / "OtherAlbum"
+    _write_dummy_file(other_album / "pic1.jpg", b"playground other-album file 1")
+    _write_dummy_file(other_album / "pic2.jpg", b"playground other-album file 2")
+
+    movies = staging / "Movies"
+    _write_dummy_file(movies / "clip1.mp4", b"playground movie file 1")
+    _write_dummy_file(movies / "clip2.mp4", b"playground movie file 2")
+
+    downloads = staging / "Downloads"
+    _write_dummy_file(downloads / "doc1.pdf", b"playground downloads file 1")
+
+    # Junk: should be swept and never reach the destination.
+    _write_dummy_file(camera / ".trashed-1234" / "deleted.jpg", b"junk")
+    _write_dummy_file(camera / "desktop.ini", b"junk")
+
+    config = {
+        "staging_root": str(staging),
+        "rename_tool_input": str(rename_in),
+        "dropbox_camera_uploads": str(dropbox_inbox),
+        "google_mobile_base": str(dest_base),
+        "desktop_mobile_camera": str(desktop_mirror),
+        "destination_span_mode": "file_date_range",
+        "destination_span_override": None,
+        "destination_span_date_source": "filename",
+        "destination_span_on_parse_failure": "fallback_prev_curr",
+        "dry_run": True,
+        "verbosity": 1,
+        "write_run_summary_json": True,
+        "audit_detail_level": "actions",
+    }
+    config_path = target_dir / "config.yaml"
+    config_path.write_text(yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
+
+    return {
+        "config_path": config_path,
+        "staging": staging,
+        "target": dest_base,
+        "config": config,
+    }
 
 
 def run_pipeline(cfg: dict) -> None:
@@ -756,36 +844,98 @@ def run_pipeline(cfg: dict) -> None:
         event("Done." + (" (dry run)" if DRY_RUN else ""))
 
 
-def cmd_run(_args: argparse.Namespace) -> None:
-    main()
+def cmd_run(args: argparse.Namespace) -> None:
+    main(args.config)
 
 
-def cmd_rename(_args: argparse.Namespace) -> None:
+def cmd_rename(args: argparse.Namespace) -> None:
     """Standalone: rename images in the configured rename_tool_input directory."""
-    cfg = load_config()
+    cfg = load_config(args.config)
     rename_images_in_directory(Path(cfg["rename_tool_input"]))
 
 
-def cmd_organize(_args: argparse.Namespace) -> None:
+def cmd_organize(args: argparse.Namespace) -> None:
     """Standalone: verify desktop_mobile_camera files exist in dropbox_camera_uploads."""
-    cfg = load_config()
+    cfg = load_config(args.config)
     verify_and_sync(
         Path(cfg["desktop_mobile_camera"]), Path(cfg["dropbox_camera_uploads"])
+    )
+
+
+def cmd_playground(args: argparse.Namespace) -> None:
+    """Generate a synthetic source tree + scratch config for a look-and-see
+    rehearsal, entirely self-contained under args.dir."""
+    try:
+        result = generate_playground(args.dir, force=args.force)
+    except FileExistsError as exc:
+        print(f"ERROR: {exc}")
+        raise SystemExit(1) from exc
+
+    config_path = result["config_path"]
+    staging = result["staging"]
+    target = result["target"]
+    print(f"Created playground at {args.dir}/")
+    print(f"  source (staging): {staging}")
+    print(f"  config:           {config_path}")
+    print()
+    print("Next steps:")
+    print(f"  1. Look around {staging} -- this is the synthetic 'source' data.")
+    print(
+        "  2. Preview (no changes): "
+        f"poetry run python mobile_backup.py run --config {config_path}"
+    )
+    print("  3. Read the log and 'Run summary' printed above.")
+    print(f"  4. When ready, edit {config_path}: dry_run: false")
+    print(f"  5. Run again -- look in {target} for where files landed.")
+
+
+def _add_config_option(subparser: argparse.ArgumentParser) -> None:
+    subparser.add_argument(
+        "--config",
+        type=Path,
+        default=None,
+        help="Path to config YAML (default: config.yaml next to this script)",
     )
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="mobile-backup")
     subparsers = parser.add_subparsers(dest="command", required=True)
-    subparsers.add_parser("run", help="Run the full backup pipeline").set_defaults(
-        func=cmd_run
-    )
-    subparsers.add_parser(
+
+    run_cmd = subparsers.add_parser("run", help="Run the full backup pipeline")
+    _add_config_option(run_cmd)
+    run_cmd.set_defaults(func=cmd_run)
+
+    rename_cmd = subparsers.add_parser(
         "rename", help="Rename images by EXIF/filename datetime"
-    ).set_defaults(func=cmd_rename)
-    subparsers.add_parser(
+    )
+    _add_config_option(rename_cmd)
+    rename_cmd.set_defaults(func=cmd_rename)
+
+    organize_cmd = subparsers.add_parser(
         "organize", help="Verify/sync files against Dropbox Camera Uploads"
-    ).set_defaults(func=cmd_organize)
+    )
+    _add_config_option(organize_cmd)
+    organize_cmd.set_defaults(func=cmd_organize)
+
+    playground_cmd = subparsers.add_parser(
+        "playground",
+        help="Generate synthetic source data + a scratch config for a "
+        "look-and-see rehearsal",
+    )
+    playground_cmd.add_argument(
+        "--dir",
+        type=Path,
+        default=Path("playground"),
+        help="Where to generate the playground (default: ./playground)",
+    )
+    playground_cmd.add_argument(
+        "--force",
+        action="store_true",
+        help="Overwrite an existing non-empty playground directory",
+    )
+    playground_cmd.set_defaults(func=cmd_playground)
+
     return parser
 
 
