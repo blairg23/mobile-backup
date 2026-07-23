@@ -67,6 +67,28 @@ def test_generate_playground_force_overwrites_nonempty_dir(tmp_path: Path) -> No
     result = generate_playground(target, force=True)
 
     assert result["config_path"].exists()
+    assert not (target / "existing.txt").exists()
+
+
+def test_generate_playground_force_clears_prior_rehearsal_leftovers(
+    tmp_path: Path,
+) -> None:
+    """A stale target/ file from a prior real run must not survive --force --
+    otherwise a "clean" rehearsal would silently see spurious dedupe skips
+    against old destination files, or stale files bleeding into the new
+    file_date_range scan."""
+    target = tmp_path / "playground"
+    generate_playground(target)
+    stale_dest = target / "target" / "202601_202601" / "Camera" / "old.mp4"
+    stale_dest.parent.mkdir(parents=True)
+    stale_dest.write_bytes(b"leftover from a prior rehearsal")
+    stale_staging_extra = target / "staging" / "DCIM" / "Camera" / "leftover.mp4"
+    stale_staging_extra.write_bytes(b"leftover")
+
+    generate_playground(target, force=True)
+
+    assert not stale_dest.exists()
+    assert not stale_staging_extra.exists()
 
 
 def test_generate_playground_config_is_fully_self_contained(tmp_path: Path) -> None:

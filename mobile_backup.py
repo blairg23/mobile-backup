@@ -566,10 +566,16 @@ def generate_playground(target_dir: Path, *, force: bool = False) -> dict:
     """Generate a synthetic staging tree plus a ready-to-use scratch config
     under target_dir, entirely self-contained -- never reads or writes any
     real staging/Dropbox/Google Drive path. Returns the paths generated."""
-    if target_dir.exists() and any(target_dir.iterdir()) and not force:
-        raise FileExistsError(
-            f"{target_dir} already exists and is not empty; pass --force to overwrite"
-        )
+    if target_dir.exists() and any(target_dir.iterdir()):
+        if not force:
+            raise FileExistsError(
+                f"{target_dir} already exists and is not empty; pass --force to overwrite"
+            )
+        # --force must produce a genuinely clean rehearsal: stale staging/target/
+        # log/conflict contents from a prior run would otherwise get picked up by
+        # the file_date_range scan or cause spurious dedupe skips against old
+        # target files.
+        shutil.rmtree(target_dir)
 
     staging = target_dir / "staging"
     rename_in = target_dir / "rename_tool_input"
