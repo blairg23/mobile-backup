@@ -382,7 +382,7 @@ def main():
 
     # Config (using your alias dirs)
     STAGING = Path(cfg["staging_root"])
-    AUDIT_ROOT = STAGING  # /mnt/c/Users/Neophile/Desktop/mobile
+    AUDIT_ROOT = STAGING  # config.staging_root
     RENAME_IN = Path(cfg["rename_tool_input"])
     DROPBOX_CU = Path(cfg["dropbox_camera_uploads"])
     GDRIVE_BASE = Path(cfg["google_mobile_base"])
