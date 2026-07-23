@@ -65,6 +65,14 @@ def test_override_mode_without_override_value_raises(tmp_path: Path) -> None:
         resolve_destination_span(_cfg(tmp_path, destination_span_mode="override"))
 
 
+def test_legacy_non_string_override_raises_when_mode_unset(tmp_path: Path) -> None:
+    # Pre-refactor behavior: an accidental non-string override (e.g. an
+    # unquoted numeric scalar in YAML) must fail loudly, not silently fall
+    # through to the auto month span.
+    with pytest.raises(ValueError, match="destination_span_override must be a string"):
+        resolve_destination_span(_cfg(tmp_path, destination_span_override=202601))
+
+
 def test_invalid_mode_raises(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="destination_span_mode"):
         resolve_destination_span(_cfg(tmp_path, destination_span_mode="whenever"))
@@ -190,3 +198,52 @@ def test_file_date_range_excludes_junk_files(tmp_path: Path) -> None:
     )
 
     assert diagnostics["total"] == 1
+
+
+def test_file_date_range_excludes_files_inside_junk_directories(
+    tmp_path: Path,
+) -> None:
+    # cleanup_unwanted() deletes .trashed*/.thumbnails directories wholesale
+    # before any move happens -- a dated file inside one must not widen the
+    # computed span or count toward the undated ratio, since it will never
+    # actually be processed.
+    (tmp_path / "20260105_090000.jpg").write_bytes(b"dated")
+    trashed = tmp_path / ".trashed-1234"
+    trashed.mkdir()
+    (trashed / "20261201_090000.jpg").write_bytes(b"junk-but-dated")
+    thumbs = tmp_path / ".thumbnails"
+    thumbs.mkdir()
+    (thumbs / "20261201_090000.jpg").write_bytes(b"junk-but-dated")
+
+    span, diagnostics = compute_file_date_range_span(
+        tmp_path, date_source="filename", on_parse_failure="fail"
+    )
+
+    assert diagnostics["total"] == 1
+    assert span == "202601_202601"
+
+
+def test_extract_file_date_fallback_order_is_deterministic(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Regardless of which source is primary, the fallback chain after it must
+    # always follow the same fixed order (filename, mtime, exif) -- not
+    # whatever order a set happens to iterate in.
+    calls: list[str] = []
+
+    def _record_and_fail(_path: Path, *, _name: str) -> date | None:
+        calls.append(_name)
+        return None
+
+    for name in ("filename", "mtime", "exif"):
+        monkeypatch.setitem(
+            mobile_backup._DATE_EXTRACTORS,
+            name,
+            lambda p, _name=name: _record_and_fail(p, _name=_name),
+        )
+    f = tmp_path / "whatever.jpg"
+    f.write_bytes(b"data")
+
+    extract_file_date(f, primary_source="exif")
+
+    assert calls == ["exif", "filename", "mtime"]

@@ -1,12 +1,12 @@
 # --- LOCAL STAGING (drag from phone into here) ---
-staging_root: "/mnt/c/Users/Neophile/Desktop/mobile"  # DCIM, Download/Downloads, Movies, Pictures
+staging_root: "/path/to/Desktop/mobile"  # DCIM, Download/Downloads, Movies, Pictures
 
 # Working directory for the rename step (Step 2 renames whatever lands here)
-rename_tool_input: "/mnt/d/Dropbox/Projects/sandboxes/python/mobile-backup/input"
+rename_tool_input: "/path/to/mobile-backup/input"
 
 # Cloud destinations
-dropbox_camera_uploads: "/mnt/d/Dropbox/Camera Uploads"
-google_mobile_base: "/mnt/d/Google Drive/Multimedia/Pictures/Personal/Mobile"
+dropbox_camera_uploads: "/path/to/Dropbox/Camera Uploads"
+google_mobile_base: "/path/to/Google Drive/Multimedia/Pictures/Personal/Mobile"
 
 # --- Destination span (which {span} folder files land in) ---
 # prev_curr_month (default): auto {prev}_{curr} calendar month, e.g. "202509_202510"
@@ -24,10 +24,10 @@ destination_span_date_source: filename
 destination_span_on_parse_failure: fallback_prev_curr  # fail|fallback_prev_curr
 
 # After renaming, stage here before the checker
-desktop_mobile_camera: "/mnt/c/Users/Neophile/Desktop/mobile/DCIM/Camera"
+desktop_mobile_camera: "/path/to/Desktop/mobile/DCIM/Camera"
 
 # Controls
-dry_run: false
+dry_run: true              # start safe; prints "would move/delete ..." lines
 verbosity: 0              # 0=events only, 1=notes incl deleted-file details, 2=debug
 write_run_summary_json: false  # true = write run_summary_{span}.json alongside the log
 audit_detail_level: summary  # summary|deletions|actions

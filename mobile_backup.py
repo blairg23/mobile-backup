@@ -94,7 +94,9 @@ def month_span() -> str:
 
 
 SPAN_MODES = {"prev_curr_month", "file_date_range", "override"}
-DATE_SOURCES = {"filename", "mtime", "exif"}
+# Ordered: also defines the fixed fallback order used by extract_file_date().
+DATE_SOURCE_ORDER = ("filename", "mtime", "exif")
+DATE_SOURCES = set(DATE_SOURCE_ORDER)
 PARSE_FAILURE_POLICIES = {"fail", "fallback_prev_curr"}
 
 # Files dropped from a phone may already have been through a prior partial
@@ -114,9 +116,11 @@ def _resolve_span_mode(cfg: dict) -> str:
     # No explicit mode: infer from the legacy override field so existing
     # configs keep behaving exactly as before.
     override = cfg.get("destination_span_override")
-    if isinstance(override, str) and override.strip():
-        return "override"
-    return "prev_curr_month"
+    if override is None:
+        return "prev_curr_month"
+    if not isinstance(override, str):
+        raise ValueError("config.destination_span_override must be a string when set")
+    return "override" if override.strip() else "prev_curr_month"
 
 
 def _date_from_filename(path: Path) -> date | None:
@@ -154,12 +158,23 @@ _DATE_EXTRACTORS = {
 def extract_file_date(path: Path, primary_source: str) -> date | None:
     """Try primary_source first, then fall back through the remaining sources
     (fixed order: filename, mtime, exif) until one produces a date."""
-    order = [primary_source] + [s for s in DATE_SOURCES if s != primary_source]
+    order = [primary_source] + [s for s in DATE_SOURCE_ORDER if s != primary_source]
     for source in order:
         result = _DATE_EXTRACTORS[source](path)
         if result is not None:
             return result
     return None
+
+
+def _has_unwanted_ancestor(path: Path, root: Path) -> bool:
+    """True if any directory between root and path is junk (.trashed*,
+    .thumbnails) that cleanup_unwanted() will delete wholesale before any
+    file inside it is ever moved."""
+    try:
+        rel_parts = path.relative_to(root).parts[:-1]
+    except ValueError:
+        rel_parts = path.parts[:-1]
+    return any(is_trashed_name(part) or is_thumbnails_name(part) for part in rel_parts)
 
 
 def compute_file_date_range_span(
@@ -173,7 +188,9 @@ def compute_file_date_range_span(
     files = [
         p
         for p in staging_root.rglob("*")
-        if p.is_file() and not is_unwanted_name(p.name)
+        if p.is_file()
+        and not is_unwanted_name(p.name)
+        and not _has_unwanted_ancestor(p, staging_root)
     ]
     dated: list[date] = []
     failed = 0
@@ -516,8 +533,16 @@ def load_config() -> dict:
 
 
 def main():
+    run_pipeline(load_config())
+
+
+def run_pipeline(cfg: dict) -> None:
+    """Run the full 7-step pipeline against an explicit config dict.
+
+    Split out from main() so tests can drive the pipeline with a synthetic,
+    tmp_path-rooted config -- never a real config.yaml or real directories.
+    """
     global VERBOSITY, AUDIT_LEVEL, AUDIT_ROOT
-    cfg = load_config()
 
     VERBOSITY = int(cfg.get("verbosity", 0))
     DRY_RUN = bool(cfg.get("dry_run", True))
@@ -526,7 +551,7 @@ def main():
 
     # Config (using your alias dirs)
     STAGING = Path(cfg["staging_root"])
-    AUDIT_ROOT = STAGING  # /mnt/c/Users/Neophile/Desktop/mobile
+    AUDIT_ROOT = STAGING  # config.staging_root
     RENAME_IN = Path(cfg["rename_tool_input"])
     DROPBOX_CU = Path(cfg["dropbox_camera_uploads"])
     GDRIVE_BASE = Path(cfg["google_mobile_base"])
