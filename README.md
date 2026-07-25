@@ -138,11 +138,39 @@ desktop_mobile_camera: `/path/to/Desktop/mobile/DCIM/Camera`
 
 ## Usage
 
-`mobile_backup.py` is a small CLI with three subcommands:
+`mobile_backup.py` is a small CLI with four subcommands:
 
 - `run` -- the full pipeline (steps 1-7 below)
 - `rename` -- standalone: rename images in `rename_tool_input` by EXIF/filename datetime
 - `organize` -- standalone: verify `desktop_mobile_camera` files exist in `dropbox_camera_uploads`, copying over anything missing
+- `playground` -- generate synthetic source data and a scratch config, for a look-and-see rehearsal before touching real files (see below)
+
+`run`, `rename`, and `organize` all accept `--config PATH` to use a config file other than `config.yaml` -- this is what makes the playground below possible without ever touching your real config.
+
+### 0) Try it risk-free with a playground first
+
+Never run this against real data cold. Generate a synthetic source tree and a
+matching scratch config, entirely self-contained under a throwaway directory:
+
+```bash
+poetry run python mobile_backup.py playground
+```
+
+This creates `./playground/` with a realistic `staging/` folder (camera files
+spanning a few different months, other album/Movies/Downloads folders, and some
+junk to be swept) plus a ready-to-use `playground/config.yaml` (`dry_run: true`,
+`destination_span_mode: file_date_range`). Look through `playground/staging/` --
+that's the "source." Then:
+
+```bash
+poetry run python mobile_backup.py run --config playground/config.yaml
+```
+
+Read the printed log, then edit `playground/config.yaml` (`dry_run: false`) and run
+again -- now look through `playground/target/` to see exactly where everything
+landed. Nothing here ever touches your real `config.yaml` or real directories; the
+whole thing is disposable (`rm -rf playground/` when you're done, or `--force` to
+regenerate it).
 
 ### 1) Dry-run (recommended)
 
