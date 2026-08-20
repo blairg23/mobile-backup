@@ -131,21 +131,27 @@ destination_span_on_parse_failure: fallback_prev_curr  # fail|fallback_prev_curr
 desktop_mobile_camera: `/path/to/Desktop/mobile/DCIM/Camera`
 
 ### Defaults
-`dry_run: true`      # start safe; prints “would move/delete …” lines
 `verbosity: 0`       # 0=quiet, 1=notes (includes deleted-file details in real run), 2=debug
+
+Dry-run is controlled by the CLI, not `config.yaml`: every subcommand previews
+by default and only makes real changes when you pass `run` as the mode
+argument (see Usage below).
 
 ---
 
 ## Usage
 
-`mobile_backup.py` is a small CLI with four subcommands:
+`mobile_backup.py` is a small CLI with four subcommands. `run`, `rename`, and
+`organize` each take an optional `dry`/`run` mode argument (default `dry`) --
+matching every other ToolShed tool: nothing writes to disk until you
+explicitly pass `run`. They also all accept `--config PATH` to use a config
+file other than `config.yaml`, which is what makes the playground below
+possible without ever touching your real config.
 
-- `run` -- the full pipeline (steps 1-7 below)
-- `rename` -- standalone: rename images in `rename_tool_input` by EXIF/filename datetime
-- `organize` -- standalone: verify `desktop_mobile_camera` files exist in `dropbox_camera_uploads`, copying over anything missing
+- `run [dry|run]` -- the full pipeline (steps 1-7 below)
+- `rename [dry|run]` -- standalone: rename images in `rename_tool_input` by EXIF/filename datetime
+- `organize [dry|run]` -- standalone: verify `desktop_mobile_camera` files exist in `dropbox_camera_uploads`, copying over anything missing
 - `playground` -- generate synthetic source data and a scratch config, for a look-and-see rehearsal before touching real files (see below)
-
-`run`, `rename`, and `organize` all accept `--config PATH` to use a config file other than `config.yaml` -- this is what makes the playground below possible without ever touching your real config.
 
 ### 0) Try it risk-free with a playground first
 
@@ -158,23 +164,28 @@ poetry run python mobile_backup.py playground
 
 This creates `./playground/` with a realistic `staging/` folder (camera files
 spanning a few different months, other album/Movies/Downloads folders, and some
-junk to be swept) plus a ready-to-use `playground/config.yaml` (`dry_run: true`,
-`destination_span_mode: file_date_range`). Look through `playground/staging/` --
+junk to be swept) plus a ready-to-use `playground/config.yaml`
+(`destination_span_mode: file_date_range`). Look through `playground/staging/` --
 that's the "source." Then:
 
 ```bash
 poetry run python mobile_backup.py run --config playground/config.yaml
 ```
 
-Read the printed log, then edit `playground/config.yaml` (`dry_run: false`) and run
-again -- now look through `playground/target/` to see exactly where everything
-landed. Nothing here ever touches your real `config.yaml` or real directories; the
+Read the printed log, then run again with the `run` mode arg -- now look through
+`playground/target/` to see exactly where everything landed:
+
+```bash
+poetry run python mobile_backup.py run --config playground/config.yaml run
+```
+
+Nothing here ever touches your real `config.yaml` or real directories; the
 whole thing is disposable (`rm -rf playground/` when you're done, or `--force` to
 regenerate it).
 
-### 1) Dry-run (recommended)
+### 1) Dry-run (default, recommended first)
 
-Run: `poetry run python mobile_backup.py run`
+Run: `poetry run python mobile_backup.py run` (equivalent to `... run dry`)
 
 Expected output (example):
 Destination span: `202509_202510` (auto)
@@ -189,9 +200,11 @@ Done. (dry run)
 
 ### 2) Real run
 
-Flip `dry_run: false` in `config.yaml`, then run: `poetry run python mobile_backup.py run`
+Run: `poetry run python mobile_backup.py run run`
 
-You’ll get progress bars and a full log inside the month folder.
+You’ll get progress bars and a full log inside the month folder. Same
+`dry|run` mode argument applies to `rename` and `organize`, e.g.
+`poetry run python mobile_backup.py rename run`.
 
 ### 3) Post-run cleanup / audits
 

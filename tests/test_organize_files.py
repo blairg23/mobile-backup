@@ -66,6 +66,37 @@ def test_verify_and_sync_quarantines_conflicting_destination_file(
     assert (right / "_conflicts" / "photo.jpg").read_bytes() == b"left bytes"
 
 
+def test_dry_run_makes_no_filesystem_changes(tmp_path: Path) -> None:
+    left = tmp_path / "left"
+    right = tmp_path / "right"
+    left.mkdir()
+    right.mkdir()
+    (left / "photo.jpg").write_bytes(b"same bytes")
+
+    verify_and_sync(left, right, dry_run=True)
+
+    assert not (right / "photo.jpg").exists()
+    assert not (right / "missing.txt").exists()
+    assert not (left / "contents.csv").exists()
+    assert not (right / "contents.csv").exists()
+
+
+def test_dry_run_previews_copy(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    left = tmp_path / "left"
+    right = tmp_path / "right"
+    left.mkdir()
+    right.mkdir()
+    (left / "photo.jpg").write_bytes(b"same bytes")
+
+    verify_and_sync(left, right, dry_run=True)
+
+    out = capsys.readouterr().out
+    assert "[DRY RUN] would copy:" in out
+    assert "photo.jpg" in out
+
+
 def test_verify_and_sync_raises_on_copy_failure(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

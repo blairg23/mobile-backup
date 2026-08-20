@@ -4,6 +4,7 @@
 Ported from rename-images-to-datetime's image_renamer.py so mobile-backup
 can call it in-process instead of shelling out to a sibling repo.
 """
+
 from __future__ import annotations
 
 import datetime
@@ -58,7 +59,9 @@ class ExifReadWorker:
         return datetime.datetime.strptime(date_and_time, "%Y:%m:%d %H:%M:%S")
 
 
-def rename_images_in_directory(input_dir: Path, debug: bool = False) -> None:
+def rename_images_in_directory(
+    input_dir: Path, dry_run: bool = False, debug: bool = False
+) -> None:
     """Rename every image/movie file in input_dir to its EXIF/filename datetime."""
     for file_format in IMAGE_FILE_FORMATS + MOVIE_FILE_FORMATS:
         glob_path = os.path.join(input_dir, file_format)
@@ -94,6 +97,11 @@ def rename_images_in_directory(input_dir: Path, debug: bool = False) -> None:
                             input_dir, new_new_filename + extension
                         )
 
+                if dry_run:
+                    print(f"[DRY RUN] would rename: {filepath} -> {new_filepath}")
+                    continue
+
+                if file_does_exist:
                     os.rename(filepath, new_filepath)
 
                     file_still_exists = os.path.isfile(filepath_before_renaming)

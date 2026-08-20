@@ -6,6 +6,7 @@ Ported from files-in-folder's FilesInFolder class so mobile-backup can call it
 in-process, driven by real config paths instead of the hardcoded example paths
 that used to live in that repo's __main__ block.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -30,8 +31,10 @@ class FilesInFolder:
         missing_files_filename="missing.txt",
         fix_missing_files=False,
         verbose=False,
+        dry_run=False,
     ):
         self.verbose = verbose
+        self.dry_run = dry_run
         self.action_counter = 0
         # Which side is the reference/source folder whose contents must exist in the other.
         # Valid values: "left" (default) or "right"
@@ -156,6 +159,11 @@ class FilesInFolder:
                 raise Exception(
                     "[ERROR] Need to provide a valid file to write contents."
                 )
+            if self.dry_run:
+                print(
+                    f"[DRY RUN] would write {write_mode} contents: {contents_filepath}"
+                )
+                return
             with open(contents_filepath, "a+") as outfile:
                 if write_mode.lower() == "json":
                     json.dump(dictionary_contents, outfile)
@@ -183,6 +191,11 @@ class FilesInFolder:
         try:
             if not list_contents:
                 raise Exception("[ERROR] Need to provide a valid list with contents.")
+            if self.dry_run:
+                print(
+                    f"[DRY RUN] would write missing-files list: {missing_files_filepath}"
+                )
+                return
             with open(missing_files_filepath, "a+") as outfile:
                 for value in list_contents:
                     outfile.write(value + "\n")
@@ -211,18 +224,28 @@ class FilesInFolder:
             try:
                 if os.path.exists(destination_filepath):
                     conflicts_dir = os.path.join(destination_directory, "_conflicts")
-                    os.makedirs(conflicts_dir, exist_ok=True)
                     stem, ext = os.path.splitext(missing_filename)
                     target = os.path.join(conflicts_dir, missing_filename)
                     i = 1
                     while os.path.exists(target):
                         target = os.path.join(conflicts_dir, f"{stem}_conflict{i}{ext}")
                         i += 1
-                    # Use copy2 to retain metadata such as creation and modification times
-                    shutil.copy2(missing_filepath, target)
+                    if self.dry_run:
+                        print(
+                            f"[DRY RUN] would quarantine (conflict): {missing_filepath} -> {target}"
+                        )
+                    else:
+                        os.makedirs(conflicts_dir, exist_ok=True)
+                        # Use copy2 to retain metadata such as creation and modification times
+                        shutil.copy2(missing_filepath, target)
                     conflicts.append(missing_filepath)
                 else:
-                    shutil.copy2(missing_filepath, destination_filepath)
+                    if self.dry_run:
+                        print(
+                            f"[DRY RUN] would copy: {missing_filepath} -> {destination_filepath}"
+                        )
+                    else:
+                        shutil.copy2(missing_filepath, destination_filepath)
                     copied.append(missing_filepath)
             except Exception as e:
                 print(e)
@@ -237,15 +260,25 @@ class FilesInFolder:
             right_file_to_delete = os.path.join(self.right_folder, filename)
 
             if os.path.exists(left_file_to_delete):
-                if self.verbose:
-                    print(f"[{self.action_counter}] Deleting {left_file_to_delete}.\n")
-                os.remove(left_file_to_delete)
+                if self.dry_run:
+                    print(f"[DRY RUN] would delete: {left_file_to_delete}")
+                else:
+                    if self.verbose:
+                        print(
+                            f"[{self.action_counter}] Deleting {left_file_to_delete}.\n"
+                        )
+                    os.remove(left_file_to_delete)
                 self.action_counter += 1
 
             if os.path.exists(right_file_to_delete):
-                if self.verbose:
-                    print(f"[{self.action_counter}] Deleting {right_file_to_delete}.\n")
-                os.remove(right_file_to_delete)
+                if self.dry_run:
+                    print(f"[DRY RUN] would delete: {right_file_to_delete}")
+                else:
+                    if self.verbose:
+                        print(
+                            f"[{self.action_counter}] Deleting {right_file_to_delete}.\n"
+                        )
+                    os.remove(right_file_to_delete)
                 self.action_counter += 1
 
     def move_files_to_folder(self, folder_name):
@@ -365,7 +398,9 @@ class FilesInFolder:
             break
 
 
-def verify_and_sync(left_folder, right_folder, *, verbose=False) -> FilesInFolder:
+def verify_and_sync(
+    left_folder, right_folder, *, verbose=False, dry_run=False
+) -> FilesInFolder:
     """Verify left_folder's contents exist in right_folder, copying over anything missing."""
     checker = FilesInFolder(
         left_folder=str(left_folder),
@@ -378,6 +413,7 @@ def verify_and_sync(left_folder, right_folder, *, verbose=False) -> FilesInFolde
         missing_files_filename="missing.txt",
         fix_missing_files=True,
         verbose=verbose,
+        dry_run=dry_run,
     )
     checker.run()
     return checker
