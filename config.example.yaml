@@ -27,7 +27,9 @@ destination_span_on_parse_failure: fallback_prev_curr  # fail|fallback_prev_curr
 desktop_mobile_camera: "/path/to/Desktop/mobile/DCIM/Camera"
 
 # Controls
-dry_run: true              # start safe; prints "would move/delete ..." lines
+# dry-run is controlled by the CLI, not this file: `mobile_backup.py run` (or
+# `rename`/`organize`) always previews by default; pass `run` as the mode arg
+# to make real changes, e.g. `mobile_backup.py run run`.
 verbosity: 0              # 0=events only, 1=notes incl deleted-file details, 2=debug
 write_run_summary_json: false  # true = write run_summary_{span}.json alongside the log
 audit_detail_level: summary  # summary|deletions|actions

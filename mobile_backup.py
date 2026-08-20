@@ -633,7 +633,7 @@ def generate_playground(target_dir: Path, *, force: bool = False) -> dict:
 def run_pipeline(cfg: dict) -> None:
     """Run the full 7-step pipeline against an explicit config dict.
 
-    Split out from main() so tests can drive the pipeline with a synthetic,
+    Split out from cmd_run() so tests can drive the pipeline with a synthetic,
     tmp_path-rooted config -- never a real config.yaml or real directories.
     """
     global VERBOSITY, AUDIT_LEVEL, AUDIT_ROOT
@@ -851,20 +851,36 @@ def run_pipeline(cfg: dict) -> None:
 
 
 def cmd_run(args: argparse.Namespace) -> None:
-    main(args.config)
+    cfg = load_config(args.config)
+    cfg["dry_run"] = args.mode != "run"
+    run_pipeline(cfg)
 
 
 def cmd_rename(args: argparse.Namespace) -> None:
     """Standalone: rename images in the configured rename_tool_input directory."""
     cfg = load_config(args.config)
-    rename_images_in_directory(Path(cfg["rename_tool_input"]))
+    rename_images_in_directory(
+        Path(cfg["rename_tool_input"]), dry_run=args.mode != "run"
+    )
 
 
 def cmd_organize(args: argparse.Namespace) -> None:
     """Standalone: verify desktop_mobile_camera files exist in dropbox_camera_uploads."""
     cfg = load_config(args.config)
     verify_and_sync(
-        Path(cfg["desktop_mobile_camera"]), Path(cfg["dropbox_camera_uploads"])
+        Path(cfg["desktop_mobile_camera"]),
+        Path(cfg["dropbox_camera_uploads"]),
+        dry_run=args.mode != "run",
+    )
+
+
+def _add_mode_arg(subparser: argparse.ArgumentParser) -> None:
+    subparser.add_argument(
+        "mode",
+        nargs="?",
+        choices=["dry", "run"],
+        default="dry",
+        help="dry (default): preview only, no changes. run: make real changes.",
     )
 
 
@@ -891,8 +907,11 @@ def cmd_playground(args: argparse.Namespace) -> None:
         f"poetry run python mobile_backup.py run --config {config_path}"
     )
     print("  3. Read the log and 'Run summary' printed above.")
-    print(f"  4. When ready, edit {config_path}: dry_run: false")
-    print(f"  5. Run again -- look in {target} for where files landed.")
+    print(
+        "  4. When ready, run for real: "
+        f"poetry run python mobile_backup.py run --config {config_path} run"
+    )
+    print(f"  5. Look in {target} for where files landed.")
 
 
 def _add_config_option(subparser: argparse.ArgumentParser) -> None:
@@ -910,18 +929,21 @@ def build_parser() -> argparse.ArgumentParser:
 
     run_cmd = subparsers.add_parser("run", help="Run the full backup pipeline")
     _add_config_option(run_cmd)
+    _add_mode_arg(run_cmd)
     run_cmd.set_defaults(func=cmd_run)
 
     rename_cmd = subparsers.add_parser(
         "rename", help="Rename images by EXIF/filename datetime"
     )
     _add_config_option(rename_cmd)
+    _add_mode_arg(rename_cmd)
     rename_cmd.set_defaults(func=cmd_rename)
 
     organize_cmd = subparsers.add_parser(
         "organize", help="Verify/sync files against Dropbox Camera Uploads"
     )
     _add_config_option(organize_cmd)
+    _add_mode_arg(organize_cmd)
     organize_cmd.set_defaults(func=cmd_organize)
 
     playground_cmd = subparsers.add_parser(
