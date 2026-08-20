@@ -63,6 +63,12 @@ def rename_images_in_directory(
     input_dir: Path, dry_run: bool = False, debug: bool = False
 ) -> None:
     """Rename every image/movie file in input_dir to its EXIF/filename datetime."""
+    # In dry-run mode nothing actually lands on disk, so two files that
+    # resolve to the same target name would both preview to the same bare
+    # path unless we also track targets already claimed by earlier files in
+    # this same run.
+    planned_targets: set[str] = set()
+
     for file_format in IMAGE_FILE_FORMATS + MOVIE_FILE_FORMATS:
         glob_path = os.path.join(input_dir, file_format)
         filepaths = glob.glob(glob_path)
@@ -89,6 +95,20 @@ def rename_images_in_directory(
                 number = 0
                 filepath_before_renaming = new_filepath
                 file_does_exist = os.path.isfile(new_filepath)
+
+                if dry_run:
+                    while (
+                        os.path.isfile(new_filepath) or new_filepath in planned_targets
+                    ):
+                        number += 1
+                        new_new_filename = new_filename + "." + str(number)
+                        new_filepath = os.path.join(
+                            input_dir, new_new_filename + extension
+                        )
+                    planned_targets.add(new_filepath)
+                    print(f"[DRY RUN] would rename: {filepath} -> {new_filepath}")
+                    continue
+
                 if file_does_exist:
                     while os.path.isfile(new_filepath):
                         number += 1
@@ -97,11 +117,6 @@ def rename_images_in_directory(
                             input_dir, new_new_filename + extension
                         )
 
-                if dry_run:
-                    print(f"[DRY RUN] would rename: {filepath} -> {new_filepath}")
-                    continue
-
-                if file_does_exist:
                     os.rename(filepath, new_filepath)
 
                     file_still_exists = os.path.isfile(filepath_before_renaming)
