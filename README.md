@@ -23,7 +23,7 @@ directly or as standalone CLI subcommands -- no more juggling three repos/envs.
 
 ## How it flows
 
-The `run` pipeline is 7 steps, moving files through a few intermediate directories
+The `backup` pipeline is 7 steps, moving files through a few intermediate directories
 before they land in the destination month-span folder. Every hop is dedupe-aware:
 identical content is skipped and the source deleted; same-name-but-different content
 is quarantined to `_conflicts/` instead of overwriting anything.
@@ -141,14 +141,14 @@ argument (see Usage below).
 
 ## Usage
 
-`mobile_backup.py` is a small CLI with four subcommands. `run`, `rename`, and
+`mobile_backup.py` is a small CLI with four subcommands. `backup`, `rename`, and
 `organize` each take an optional `dry`/`run` mode argument (default `dry`) --
 matching every other ToolShed tool: nothing writes to disk until you
 explicitly pass `run`. They also all accept `--config PATH` to use a config
 file other than `config.yaml`, which is what makes the playground below
 possible without ever touching your real config.
 
-- `run [dry|run]` -- the full pipeline (steps 1-7 below)
+- `backup [dry|run]` -- the full pipeline (steps 1-7 below)
 - `rename [dry|run]` -- standalone: rename images in `rename_tool_input` by EXIF/filename datetime
 - `organize [dry|run]` -- standalone: verify `desktop_mobile_camera` files exist in `dropbox_camera_uploads`, copying over anything missing
 - `playground` -- generate synthetic source data and a scratch config, for a look-and-see rehearsal before touching real files (see below)
@@ -169,14 +169,14 @@ junk to be swept) plus a ready-to-use `playground/config.yaml`
 that's the "source." Then:
 
 ```bash
-poetry run python mobile_backup.py run --config playground/config.yaml
+poetry run python mobile_backup.py backup --config playground/config.yaml
 ```
 
 Read the printed log, then run again with the `run` mode arg -- now look through
 `playground/target/` to see exactly where everything landed:
 
 ```bash
-poetry run python mobile_backup.py run --config playground/config.yaml run
+poetry run python mobile_backup.py backup --config playground/config.yaml run
 ```
 
 Nothing here ever touches your real `config.yaml` or real directories; the
@@ -185,7 +185,7 @@ regenerate it).
 
 ### 1) Dry-run (default, recommended first)
 
-Run: `poetry run python mobile_backup.py run` (equivalent to `... run dry`)
+Run: `poetry run python mobile_backup.py backup` (equivalent to `... backup dry`)
 
 Expected output (example):
 Destination span: `202509_202510` (auto)
@@ -200,7 +200,7 @@ Done. (dry run)
 
 ### 2) Real run
 
-Run: `poetry run python mobile_backup.py run run`
+Run: `poetry run python mobile_backup.py backup run`
 
 You’ll get progress bars and a full log inside the month folder. Same
 `dry|run` mode argument applies to `rename` and `organize`, e.g.

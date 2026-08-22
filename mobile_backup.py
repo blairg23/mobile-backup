@@ -633,7 +633,7 @@ def generate_playground(target_dir: Path, *, force: bool = False) -> dict:
 def run_pipeline(cfg: dict) -> None:
     """Run the full 7-step pipeline against an explicit config dict.
 
-    Split out from cmd_run() so tests can drive the pipeline with a synthetic,
+    Split out from cmd_backup() so tests can drive the pipeline with a synthetic,
     tmp_path-rooted config -- never a real config.yaml or real directories.
     """
     global VERBOSITY, AUDIT_LEVEL, AUDIT_ROOT
@@ -850,7 +850,7 @@ def run_pipeline(cfg: dict) -> None:
         event("Done." + (" (dry run)" if DRY_RUN else ""))
 
 
-def cmd_run(args: argparse.Namespace) -> None:
+def cmd_backup(args: argparse.Namespace) -> None:
     cfg = load_config(args.config)
     cfg["dry_run"] = args.mode != "run"
     run_pipeline(cfg)
@@ -904,12 +904,12 @@ def cmd_playground(args: argparse.Namespace) -> None:
     print(f"  1. Look around {staging} -- this is the synthetic 'source' data.")
     print(
         "  2. Preview (no changes): "
-        f"poetry run python mobile_backup.py run --config {config_path}"
+        f"poetry run python mobile_backup.py backup --config {config_path}"
     )
     print("  3. Read the log and 'Run summary' printed above.")
     print(
         "  4. When ready, run for real: "
-        f"poetry run python mobile_backup.py run --config {config_path} run"
+        f"poetry run python mobile_backup.py backup --config {config_path} run"
     )
     print(f"  5. Look in {target} for where files landed.")
 
@@ -927,10 +927,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="mobile-backup")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    run_cmd = subparsers.add_parser("run", help="Run the full backup pipeline")
-    _add_config_option(run_cmd)
-    _add_mode_arg(run_cmd)
-    run_cmd.set_defaults(func=cmd_run)
+    backup_cmd = subparsers.add_parser("backup", help="Run the full backup pipeline")
+    _add_config_option(backup_cmd)
+    _add_mode_arg(backup_cmd)
+    backup_cmd.set_defaults(func=cmd_backup)
 
     rename_cmd = subparsers.add_parser(
         "rename", help="Rename images by EXIF/filename datetime"

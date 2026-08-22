@@ -1,8 +1,11 @@
 """Tests for the mobile_backup.py CLI's dry/run mode argument.
 
-Every subcommand (run, rename, organize) must default to a dry preview and
+Every subcommand (backup, rename, organize) must default to a dry preview and
 only make real changes when "run" is passed explicitly as the mode arg --
-matching the dry/run convention used by every other ToolShed tool.
+matching the dry/run convention used by every other ToolShed tool. The
+full-pipeline subcommand is named "backup" (not "run") specifically so it
+doesn't collide with the "run" mode value -- "backup run" reads fine, "run
+run" doesn't.
 """
 
 from pathlib import Path
@@ -10,19 +13,19 @@ from pathlib import Path
 import pytest
 
 import mobile_backup
-from mobile_backup import build_parser, cmd_organize, cmd_rename, cmd_run
+from mobile_backup import build_parser, cmd_backup, cmd_organize, cmd_rename
 
 
 def test_all_subcommands_default_mode_to_dry() -> None:
     parser = build_parser()
-    for command in ("run", "rename", "organize"):
+    for command in ("backup", "rename", "organize"):
         args = parser.parse_args([command])
         assert args.mode == "dry"
 
 
 def test_all_subcommands_accept_explicit_run_mode() -> None:
     parser = build_parser()
-    for command in ("run", "rename", "organize"):
+    for command in ("backup", "rename", "organize"):
         args = parser.parse_args([command, "run"])
         assert args.mode == "run"
 
@@ -30,11 +33,11 @@ def test_all_subcommands_accept_explicit_run_mode() -> None:
 @pytest.mark.parametrize(
     ("cli_args", "config_dry_run", "expected_dry_run"),
     [
-        (["run"], False, True),
-        (["run", "run"], True, False),
+        (["backup"], False, True),
+        (["backup", "run"], True, False),
     ],
 )
-def test_cmd_run_mode_overrides_config_dry_run(
+def test_cmd_backup_mode_overrides_config_dry_run(
     monkeypatch: pytest.MonkeyPatch,
     cli_args: list[str],
     config_dry_run: bool,
@@ -49,7 +52,7 @@ def test_cmd_run_mode_overrides_config_dry_run(
     captured: dict[str, object] = {}
     monkeypatch.setattr(mobile_backup, "run_pipeline", lambda cfg: captured.update(cfg))
 
-    cmd_run(build_parser().parse_args(cli_args))
+    cmd_backup(build_parser().parse_args(cli_args))
 
     assert captured["dry_run"] is expected_dry_run
 
