@@ -14,16 +14,18 @@ See `README.md` for the full pipeline and configuration.
 ## Commands
 
 ```bash
-poetry run python mobile_backup.py run            # full pipeline
-poetry run python mobile_backup.py rename          # standalone: rename images in rename_tool_input
+poetry run python mobile_backup.py backup           # full pipeline (dry preview; add "run" to make real changes)
+poetry run python mobile_backup.py rename           # standalone: rename images in rename_tool_input
 poetry run python mobile_backup.py organize         # standalone: verify/sync desktop_mobile_camera <-> dropbox_camera_uploads
 poetry run python mobile_backup.py playground       # generate a synthetic source tree + scratch config for a safe rehearsal
 poetry run python cleanup_folder.py <span> [--apply]  # post-run audit/cleanup
 ```
 
-`run`/`rename`/`organize` accept `--config PATH` to target a config file other than
-`config.yaml` (default) -- used by `playground` to keep rehearsals fully separate
-from real config.
+`backup`/`rename`/`organize` all take an optional `dry`/`run` mode argument
+(default `dry`) -- nothing writes to disk until you pass `run` explicitly,
+e.g. `mobile_backup.py backup run`. They also accept `--config PATH` to
+target a config file other than `config.yaml` (default) -- used by
+`playground` to keep rehearsals fully separate from real config.
 
 ## Development
 
