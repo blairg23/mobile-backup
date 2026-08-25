@@ -1,6 +1,7 @@
 # project
 config.yaml
 *.log
+playground/
 
 # python
 __pycache__/
